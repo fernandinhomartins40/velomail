@@ -19,6 +19,28 @@ const accountIdParamSchema = z.object({
   accountId: z.coerce.number().int().positive()
 });
 
+const planIdParamSchema = z.object({
+  planId: z.coerce.number().int().positive()
+});
+
+const limitValue = z.number().int().min(0).max(100_000_000);
+
+const planBodySchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(1000).nullable().optional(),
+  monthly_price_cents: z.number().int().min(0).max(100_000_000),
+  emails_per_minute: limitValue,
+  emails_per_hour: limitValue,
+  emails_per_day: limitValue,
+  emails_per_month: limitValue,
+  domains_limit: limitValue,
+  webhooks_limit: limitValue,
+  is_active: z.boolean().optional(),
+  is_default: z.boolean().optional(),
+  sort_order: z.number().int().min(0).max(10_000).optional(),
+  reason: z.string().max(500).optional()
+});
+
 const userIdParamSchema = z.object({
   userId: z.coerce.number().int().positive()
 });
@@ -84,11 +106,18 @@ router.patch('/accounts/:accountId/plan',
   validateRequest({
     params: accountIdParamSchema,
     body: z.object({
-      plan_name: z.string().min(2).max(80),
-      status: z.string().max(40).optional(),
-      monthly_email_limit: z.number().int().positive().optional(),
-      api_rate_limit_per_minute: z.number().int().positive().optional(),
+      plan_name: z.string().trim().min(2).max(80),
+      status: z.enum(['active', 'trialing', 'past_due', 'canceled']).optional(),
       expires_at: z.string().datetime().nullable().optional(),
+      overrides: z.object({
+        emailsPerMinute: limitValue.nullable().optional(),
+        emailsPerHour: limitValue.nullable().optional(),
+        emailsPerDay: limitValue.nullable().optional(),
+        emailsPerMonth: limitValue.nullable().optional(),
+        domainsLimit: limitValue.nullable().optional(),
+        webhooksLimit: limitValue.nullable().optional()
+      }).optional(),
+      notes: z.string().max(2000).nullable().optional(),
       reason: z.string().max(500).optional()
     })
   }),
@@ -103,6 +132,39 @@ router.patch('/accounts/:accountId/plan',
         userAgent: req.get('User-Agent') || undefined
       }
     );
+    res.json({ success: true, data });
+  })
+);
+
+router.get('/plans', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await superAdminService.listPlans(req.user!.id);
+  res.json({ success: true, data });
+}));
+
+router.post('/plans',
+  validateRequest({
+    body: planBodySchema.extend({
+      slug: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,78}$/, 'Use letras minúsculas, números e hífen')
+    })
+  }),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const data = await superAdminService.createPlan(req.user!.id, req.body, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent') || undefined
+    });
+    res.status(201).json({ success: true, data });
+  })
+);
+
+router.patch('/plans/:planId',
+  validateRequest({ params: planIdParamSchema, body: planBodySchema.partial() }),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const data = await superAdminService.updatePlan(req.user!.id, Number(req.params.planId), req.body, {
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent') || undefined
+    });
     res.json({ success: true, data });
   })
 );

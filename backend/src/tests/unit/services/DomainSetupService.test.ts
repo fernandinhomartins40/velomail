@@ -8,6 +8,9 @@ jest.mock('../../../config/logger');
 jest.mock('../../../utils/crypto', () => ({
   generateVerificationToken: jest.fn()
 }));
+jest.mock('../../../services/PlanLimitsService', () => ({
+  planLimitsService: { assertResourceLimit: jest.fn(async () => undefined) }
+}));
 jest.mock('../../../services/MultiDomainDKIMManager', () => ({
   MultiDomainDKIMManager: jest.fn().mockImplementation(() => ({
     regenerateDKIMKeysForDomain: jest.fn()

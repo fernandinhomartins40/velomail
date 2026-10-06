@@ -6,6 +6,7 @@ import { DomainValidator } from './DomainValidator';
 import { SimpleEmailValidator } from '../email/EmailValidator';
 import { buildManagedMailFromDomain, DEFAULT_PLATFORM_MX_HOST } from '../utils/mailFrom';
 import { Env } from '../utils/env';
+import { planLimitsService } from './PlanLimitsService';
 import dns from 'dns';
 import { promisify } from 'util';
 
@@ -163,6 +164,8 @@ export class DomainSetupService {
       if (this.isUltraZendDomain(normalizedDomain)) {
         throw new Error('Domínios UltraZend são gerenciados automaticamente e não podem ser configurados manualmente');
       }
+
+      await planLimitsService.assertResourceLimit(userId, 'domains');
 
       // 4. Gerar token de verificação
       const verificationToken = generateVerificationToken();

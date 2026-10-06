@@ -97,10 +97,11 @@ router.post('/setup',
 
       // Retornar erro específico para o cliente
       if (error instanceof Error) {
-        res.status(400).json({
+        const planLimitReached = (error as any).code === 'PLAN_LIMIT_REACHED';
+        res.status(planLimitReached ? 403 : 400).json({
           success: false,
           error: error.message,
-          code: 'DOMAIN_SETUP_FAILED'
+          code: planLimitReached ? 'PLAN_LIMIT_REACHED' : 'DOMAIN_SETUP_FAILED'
         });
       } else {
         res.status(500).json({

@@ -1,12 +1,13 @@
 import { startTransition, useDeferredValue, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { superAdminApi } from '@/lib/api'
+import { AccountPlanDialog } from '../AccountPlanDialog'
 import type { AccountRow } from '../types'
 import { boolBadge, toPagination } from '../utils'
 
@@ -15,9 +16,7 @@ export function SuperAdminAccountsPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
 
-  const [planAccountId, setPlanAccountId] = useState<number | null>(null)
-  const [planName, setPlanName] = useState('professional')
-  const [planEmailLimit, setPlanEmailLimit] = useState('200000')
+  const [planAccount, setPlanAccount] = useState<AccountRow | null>(null)
 
   const deferredSearch = useDeferredValue(search.trim())
   const params = useMemo(() => ({
@@ -34,28 +33,6 @@ export function SuperAdminAccountsPage() {
         rows: (payload.accounts || []) as AccountRow[],
         pagination: toPagination(payload.pagination)
       }
-    }
-  })
-
-  const updatePlanMutation = useMutation({
-    mutationFn: async () => {
-      if (!planAccountId) throw new Error('Selecione uma conta')
-      await superAdminApi.updateAccountPlan(planAccountId, {
-        plan_name: planName,
-        monthly_email_limit: Number(planEmailLimit),
-        reason: 'Ajuste de plano via painel super admin'
-      })
-    },
-    onSuccess: async () => {
-      toast.success('Plano atualizado')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['super-admin', 'accounts'] }),
-        queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] }),
-        queryClient.invalidateQueries({ queryKey: ['super-admin', 'audit'] })
-      ])
-    },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || error?.message || 'Falha ao atualizar plano')
     }
   })
 
@@ -84,8 +61,8 @@ export function SuperAdminAccountsPage() {
           <CardTitle>Contas</CardTitle>
           <CardDescription>Gestão de contas do SaaS, planos e bloqueios operacionais.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2">
-          <div className="relative">
+        <CardContent>
+          <div className="relative max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
@@ -97,43 +74,6 @@ export function SuperAdminAccountsPage() {
               })}
             />
           </div>
-
-          <div className="grid gap-2 sm:grid-cols-3">
-            <select
-              value={planAccountId ?? ''}
-              onChange={(event) => setPlanAccountId(event.target.value ? Number(event.target.value) : null)}
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Conta para plano</option>
-              {rows.map((row) => (
-                <option key={row.id} value={row.id}>
-                  #{row.id} {row.email}
-                </option>
-              ))}
-            </select>
-            <select
-              value={planName}
-              onChange={(event) => setPlanName(event.target.value)}
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="free">gratuito</option>
-              <option value="professional">profissional</option>
-              <option value="enterprise">empresarial</option>
-            </select>
-            <Input
-              type="number"
-              min={1}
-              value={planEmailLimit}
-              onChange={(event) => setPlanEmailLimit(event.target.value)}
-              placeholder="limite/mes"
-            />
-          </div>
-        </CardContent>
-        <CardContent className="pt-0">
-          <Button onClick={() => updatePlanMutation.mutate()} disabled={updatePlanMutation.isPending}>
-            {updatePlanMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Atualizar plano
-          </Button>
         </CardContent>
       </Card>
 
@@ -167,10 +107,9 @@ export function SuperAdminAccountsPage() {
                     <div className="text-xs text-muted-foreground">#{row.id} - {row.email}</div>
                   </td>
                   <td className="px-2 py-3">
-                    <Badge variant="outline">{row.plan_name || 'free'}</Badge>
-                    <div className="text-xs text-muted-foreground">
-                      {Number(row.monthly_email_limit || 0).toLocaleString('pt-BR')} / mês
-                    </div>
+                    {row.plan_name && row.plan_status !== 'canceled'
+                      ? <Badge variant="outline">{row.plan_name}</Badge>
+                      : <span className="text-xs text-muted-foreground">Plano padrão</span>}
                   </td>
                   <td className="px-2 py-3">
                     {row.is_suspended
@@ -182,6 +121,9 @@ export function SuperAdminAccountsPage() {
                   <td className="px-2 py-3">{boolBadge(!Boolean(row.email_sending_blocked), 'Liberado', 'Bloqueado')}</td>
                   <td className="px-2 py-3">
                     <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setPlanAccount(row)}>
+                        Plano e limites
+                      </Button>
                       <Button
                         size="sm"
                         variant={row.is_suspended ? 'default' : 'destructive'}
@@ -238,6 +180,8 @@ export function SuperAdminAccountsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <AccountPlanDialog account={planAccount} onClose={() => setPlanAccount(null)} />
     </div>
   )
 }

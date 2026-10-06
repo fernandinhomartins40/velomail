@@ -17,6 +17,8 @@ import { settingsService } from '../services/SettingsService';
 import { workspaceService } from '../services/WorkspaceService';
 import { DomainSetupService } from '../services/DomainSetupService';
 import { MultiTenantEmailService } from '../services/MultiTenantEmailService';
+import { TenantContextService } from '../services/TenantContextService';
+import { planLimitsService } from '../services/PlanLimitsService';
 import { AiIntegrationService, AI_AGENT_DEFAULT_PERMISSIONS } from '../services/AiIntegrationService';
 import { generateApiKey, generateSecretKey, hashApiKey } from '../utils/crypto';
 import { resolveInsertedId } from '../utils/insertedId';
@@ -513,6 +515,7 @@ const registerMcpTools = (server: McpServer, req: AuthenticatedRequest) => {
       },
       async ({ webhook_url, name, secret, events }) => {
         await assertSafeWebhookUrl(webhook_url);
+        await planLimitsService.assertResourceLimit(accountUserId, 'webhooks');
 
         const insertResult = await db('webhooks').insert({
           url: webhook_url,
@@ -641,6 +644,20 @@ const registerMcpTools = (server: McpServer, req: AuthenticatedRequest) => {
         }
       },
       async ({ from, to, subject, html, text, template_id, variables }) => {
+        const tenantValidation = await TenantContextService.getInstance().validateTenantOperation(accountUserId, {
+          operation: 'send_email',
+          resource: from.split('@')[1].toLowerCase(),
+          metadata: { to }
+        });
+        if (!tenantValidation.allowed) {
+          return buildToolResult('Envio bloqueado pela politica da conta', {
+            success: false,
+            error: tenantValidation.reason || 'Tenant policy blocked email sending',
+            code: 'TENANT_POLICY_BLOCKED',
+            metadata: tenantValidation.metadata
+          });
+        }
+
         const emailService = new MultiTenantEmailService();
         const result = await emailService.sendEmail(
           {

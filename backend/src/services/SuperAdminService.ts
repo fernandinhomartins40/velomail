@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import db from '../config/database';
 import { sqlExtractDomain } from '../utils/sqlDialect';
+import { OVERRIDE_COLUMNS, LimitKey, planLimitsService } from './PlanLimitsService';
+import { TenantContextService } from './TenantContextService';
 
 interface PaginationOptions {
   page?: number;
@@ -12,6 +14,41 @@ interface AccountFilters extends PaginationOptions {
   status?: 'active' | 'inactive' | 'suspended';
   plan?: string;
 }
+
+export interface PlanPayload {
+  slug?: string;
+  name?: string;
+  description?: string | null;
+  monthly_price_cents?: number;
+  emails_per_minute?: number;
+  emails_per_hour?: number;
+  emails_per_day?: number;
+  emails_per_month?: number;
+  domains_limit?: number;
+  webhooks_limit?: number;
+  is_active?: boolean;
+  is_default?: boolean;
+  sort_order?: number;
+  reason?: string;
+}
+
+export type LimitOverrides = Partial<Record<LimitKey, number | null>>;
+
+const PLAN_COLUMNS = [
+  'slug',
+  'name',
+  'description',
+  'monthly_price_cents',
+  'emails_per_minute',
+  'emails_per_hour',
+  'emails_per_day',
+  'emails_per_month',
+  'domains_limit',
+  'webhooks_limit',
+  'is_active',
+  'is_default',
+  'sort_order'
+] as const;
 
 interface UserFilters extends PaginationOptions {
   search?: string;
@@ -368,8 +405,9 @@ class SuperAdminService {
         's.plan_name',
         's.status as plan_status',
         's.monthly_email_limit',
-        's.api_rate_limit_per_minute',
         's.expires_at as plan_expires_at',
+        's.notes as plan_notes',
+        ...Object.values(OVERRIDE_COLUMNS).map((column) => `s.${column}`),
         'f.is_suspended',
         'f.is_under_review',
         'f.email_sending_blocked',
@@ -408,8 +446,33 @@ class SuperAdminService {
         })
     ]);
 
+    const [planState, usage] = await Promise.all([
+      planLimitsService.getAccountPlanState(accountUserId, { fresh: true }),
+      planLimitsService.getUsage(accountUserId)
+    ]);
+
     return {
       account,
+      plan: {
+        slug: planState.plan.slug,
+        name: planState.plan.name,
+        source: planState.source,
+        status: planState.subscriptionStatus,
+        expires_at: planState.expiresAt,
+        limits: planState.limits,
+        plan_limits: {
+          emailsPerMinute: planState.plan.emails_per_minute,
+          emailsPerHour: planState.plan.emails_per_hour,
+          emailsPerDay: planState.plan.emails_per_day,
+          emailsPerMonth: planState.plan.emails_per_month,
+          domainsLimit: planState.plan.domains_limit,
+          webhooksLimit: planState.plan.webhooks_limit
+        },
+        overridden_limits: planState.overriddenLimits,
+        is_suspended: planState.isSuspended,
+        sending_blocked: planState.sendingBlocked
+      },
+      usage,
       stats: {
         domains: Number((domains as any)?.total || 0),
         api_keys: Number((apiKeys as any)?.total || 0),
@@ -427,25 +490,49 @@ class SuperAdminService {
     payload: {
       plan_name: string;
       status?: string;
-      monthly_email_limit?: number;
-      api_rate_limit_per_minute?: number;
       expires_at?: string | null;
+      overrides?: LimitOverrides;
+      notes?: string | null;
       reason?: string;
     },
     requestContext?: { requestId?: string; ipAddress?: string; userAgent?: string; }
   ) {
     await this.assertPlatformAdmin(adminUserId);
     await this.ensureTables(['account_subscriptions']);
+    await planLimitsService.ensureCatalogSeeded();
+
+    const account = await db('users').select('id').where('id', accountUserId).first();
+    if (!account) {
+      throw createOperationalError('Conta não encontrada', 404);
+    }
+
+    const plan = await planLimitsService.findPlan(payload.plan_name);
+    if (!plan) {
+      throw createOperationalError(`Plano "${payload.plan_name}" não existe no catálogo`, 400);
+    }
 
     const before = await db('account_subscriptions').where('account_user_id', accountUserId).first();
-    const nextData = {
-      plan_name: payload.plan_name,
+    const nextData: Record<string, unknown> = {
+      plan_name: plan.slug,
       status: payload.status || before?.status || 'active',
-      monthly_email_limit: Number(payload.monthly_email_limit || before?.monthly_email_limit || 1000),
-      api_rate_limit_per_minute: Number(payload.api_rate_limit_per_minute || before?.api_rate_limit_per_minute || 120),
-      expires_at: payload.expires_at ? new Date(payload.expires_at) : (before?.expires_at || null),
+      expires_at: payload.expires_at === undefined
+        ? (before?.expires_at ?? null)
+        : (payload.expires_at ? new Date(payload.expires_at) : null),
       updated_at: new Date()
     };
+
+    if (payload.notes !== undefined) {
+      nextData.notes = payload.notes || null;
+    }
+
+    if (payload.overrides) {
+      for (const [key, column] of Object.entries(OVERRIDE_COLUMNS) as [LimitKey, string][]) {
+        if (key in payload.overrides) {
+          const value = payload.overrides[key];
+          nextData[column] = value === null || value === undefined ? null : Number(value);
+        }
+      }
+    }
 
     if (!before) {
       await db('account_subscriptions').insert({
@@ -461,6 +548,7 @@ class SuperAdminService {
     }
 
     const after = await db('account_subscriptions').where('account_user_id', accountUserId).first();
+    await this.invalidateAccountCaches(accountUserId);
     await this.audit(adminUserId, 'account.plan.update', 'account', accountUserId, {
       reason: payload.reason,
       before,
@@ -471,6 +559,134 @@ class SuperAdminService {
     });
 
     return after;
+  }
+
+  async listPlans(adminUserId: number) {
+    await this.assertPlatformAdmin(adminUserId);
+    await planLimitsService.ensureCatalogSeeded();
+
+    const [plans, defaultPlan, counts] = await Promise.all([
+      planLimitsService.listPlans({ includeInactive: true }),
+      planLimitsService.getDefaultPlan(),
+      this.hasTable('account_subscriptions').then((exists) => exists
+        ? db('account_subscriptions')
+          .select('plan_name')
+          .count('* as total')
+          .whereNotIn('status', ['canceled', 'cancelled', 'expired'])
+          .groupBy('plan_name')
+        : [])
+    ]);
+
+    const accountsByPlan = new Map<string, number>(
+      (counts as any[]).map((row) => [String(row.plan_name), Number(row.total || 0)])
+    );
+
+    return {
+      plans: plans.map((plan) => ({
+        ...plan,
+        is_default: plan.slug === defaultPlan.slug,
+        accounts: accountsByPlan.get(plan.slug) || 0
+      }))
+    };
+  }
+
+  async createPlan(
+    adminUserId: number,
+    payload: PlanPayload,
+    requestContext?: { requestId?: string; ipAddress?: string; userAgent?: string; }
+  ) {
+    await this.assertPlatformAdmin(adminUserId);
+    await planLimitsService.ensureCatalogSeeded();
+
+    const slug = String(payload.slug || '').trim().toLowerCase();
+    if (await db('platform_plans').where('slug', slug).first('id')) {
+      throw createOperationalError(`Já existe um plano com o identificador "${slug}"`, 409);
+    }
+
+    const now = new Date();
+    const data: Record<string, any> = { ...this.pickPlanColumns(payload), slug, created_at: now, updated_at: now };
+    if (data.is_default && data.is_active === false) {
+      throw createOperationalError('O plano padrão não pode ser criado inativo', 400);
+    }
+
+    const plan = await db.transaction(async (trx) => {
+      if (data.is_default) {
+        await trx('platform_plans').update({ is_default: false, updated_at: now });
+      }
+      await trx('platform_plans').insert(data);
+      return trx('platform_plans').where('slug', slug).first();
+    });
+
+    planLimitsService.invalidate();
+    await this.audit(adminUserId, 'plan.create', 'plan', plan.id, {
+      reason: payload.reason,
+      after: plan,
+      requestId: requestContext?.requestId,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent
+    });
+
+    return plan;
+  }
+
+  async updatePlan(
+    adminUserId: number,
+    planId: number,
+    payload: PlanPayload,
+    requestContext?: { requestId?: string; ipAddress?: string; userAgent?: string; }
+  ) {
+    await this.assertPlatformAdmin(adminUserId);
+    await planLimitsService.ensureCatalogSeeded();
+
+    const before = await db('platform_plans').where('id', planId).first();
+    if (!before) {
+      throw createOperationalError('Plano não encontrado', 404);
+    }
+
+    // O slug é a chave gravada nas assinaturas; não pode mudar.
+    const { slug: _slug, ...changes } = this.pickPlanColumns(payload);
+    const willBeDefault = changes.is_default ?? Boolean(before.is_default);
+    const willBeActive = changes.is_active ?? Boolean(before.is_active);
+    if (willBeDefault && !willBeActive) {
+      throw createOperationalError('O plano padrão não pode ser desativado', 400);
+    }
+
+    const now = new Date();
+    const plan = await db.transaction(async (trx) => {
+      if (changes.is_default) {
+        await trx('platform_plans').whereNot('id', planId).update({ is_default: false, updated_at: now });
+      }
+      await trx('platform_plans').where('id', planId).update({ ...changes, updated_at: now });
+      return trx('platform_plans').where('id', planId).first();
+    });
+
+    planLimitsService.invalidate();
+    await TenantContextService.getInstance().invalidateCache();
+    await this.audit(adminUserId, 'plan.update', 'plan', planId, {
+      reason: payload.reason,
+      before,
+      after: plan,
+      requestId: requestContext?.requestId,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent
+    });
+
+    return plan;
+  }
+
+  private pickPlanColumns(payload: PlanPayload): Record<string, any> {
+    const data: Record<string, any> = {};
+    for (const column of PLAN_COLUMNS) {
+      if (payload[column] !== undefined) {
+        data[column] = payload[column];
+      }
+    }
+    return data;
+  }
+
+  private async invalidateAccountCaches(accountUserId: number) {
+    planLimitsService.invalidate(accountUserId);
+    await TenantContextService.getInstance().invalidateCache(accountUserId);
   }
 
   async updateAccountSecurity(
@@ -523,6 +739,7 @@ class SuperAdminService {
     }
 
     const after = await db('account_security_flags').where('account_user_id', accountUserId).first();
+    await this.invalidateAccountCaches(accountUserId);
     await this.audit(adminUserId, 'account.security.update', 'account', accountUserId, {
       reason: payload.reason,
       before,

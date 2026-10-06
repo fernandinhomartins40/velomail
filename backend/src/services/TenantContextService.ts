@@ -2,6 +2,7 @@ import { logger } from '../config/logger';
 import db from '../config/database';
 import { DomainValidator } from './DomainValidator';
 import { MultiDomainDKIMManager } from './MultiDomainDKIMManager';
+import { AccountPlanState, planLimitsService } from './PlanLimitsService';
 
 export interface TenantContext {
   userId: number;
@@ -13,6 +14,7 @@ export interface TenantContext {
   rateLimits: RateLimits;
   tenantSettings: TenantSettings;
   isActive: boolean;
+  planState?: AccountPlanState;
   createdAt: Date;
   lastActivity: Date;
   // Propriedades para rate limiting em tempo real
@@ -89,6 +91,18 @@ export interface TenantOperation {
   data?: any; // Propriedade data opcional
 }
 
+// Limites que ainda não são aplicados em lugar nenhum e por isso não fazem
+// parte do catálogo de planos (platform_plans).
+const UNENFORCED_LIMITS: Record<string, {
+  apiCalls: RateLimits['apiCalls'];
+  webhookCalls: RateLimits['webhookCalls'];
+  storageLimit: number;
+}> = {
+  free: { apiCalls: { perMinute: 5, perHour: 100 }, webhookCalls: { perMinute: 1, perHour: 10 }, storageLimit: 100 },
+  professional: { apiCalls: { perMinute: 50, perHour: 1000 }, webhookCalls: { perMinute: 5, perHour: 50 }, storageLimit: 1000 },
+  enterprise: { apiCalls: { perMinute: 200, perHour: 10000 }, webhookCalls: { perMinute: 20, perHour: 200 }, storageLimit: 10000 }
+};
+
 export class TenantContextService {
   private static instance: TenantContextService;
   private domainValidator: DomainValidator;
@@ -150,11 +164,7 @@ export class TenantContextService {
         throw new Error(`Usuário ${userId} não encontrado`);
       }
 
-      // Buscar plano do usuário
-      const userPlan = await db('user_plans')
-        .where('user_id', userId)
-        .where('is_active', true)
-        .first() || { plan_name: 'free' };
+      const planState = await planLimitsService.getAccountPlanState(userId);
 
       // Buscar domínios verificados
       const verifiedDomains = await this.getVerifiedDomains(userId);
@@ -162,11 +172,8 @@ export class TenantContextService {
       // Buscar configurações DKIM
       const dkimConfigurations = await this.getDKIMConfigurations(userId);
 
-      // Definir limites baseados no plano
-      const planLimits = this.getPlanLimits(userPlan.plan_name);
-
-      // Definir rate limits
-      const rateLimits = this.getRateLimits(userPlan.plan_name);
+      const planLimits = this.getPlanLimits(planState);
+      const rateLimits = this.getRateLimits(planState);
 
       // Buscar configurações do tenant
       const tenantSettings = await this.getTenantSettings(userId);
@@ -174,13 +181,14 @@ export class TenantContextService {
       const context: TenantContext = {
         userId,
         email: user.email,
-        plan: userPlan.plan_name,
+        plan: planState.plan.slug,
         planLimits,
         verifiedDomains,
         dkimConfigurations,
         rateLimits,
         tenantSettings,
-        isActive: user.is_verified && !user.is_suspended,
+        planState,
+        isActive: user.is_verified && !user.is_suspended && !planState.isSuspended,
         createdAt: new Date(user.created_at),
         lastActivity: new Date(user.last_activity || user.created_at),
         // Rate limiting em tempo real
@@ -221,7 +229,7 @@ export class TenantContextService {
     operation: TenantOperation
   ): Promise<{ allowed: boolean; reason?: string; metadata?: any }> {
     try {
-      const context = await this.getTenantContext(userId);
+      const context = await this.withCurrentPlan(await this.getTenantContext(userId));
 
       if (!context.isActive) {
         return {
@@ -275,6 +283,13 @@ export class TenantContextService {
     const { userId } = context;
     const { resource: fromDomain, metadata } = operation;
 
+    if (context.planState?.sendingBlocked) {
+      return {
+        allowed: false,
+        reason: 'Envio de emails bloqueado para esta conta'
+      };
+    }
+
     // Verificar se domínio pertence ao tenant
     const domainOwned = context.verifiedDomains.some(
       domain => domain.domainName === fromDomain && domain.isVerified
@@ -287,56 +302,44 @@ export class TenantContextService {
       };
     }
 
-    // Verificar rate limits diários
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const emailsSentToday = await db('emails')
-      .where('user_id', userId)
-      .where('created_at', '>=', today)
-      .count('* as count')
-      .first();
-
-    const sentCount = parseInt(String(emailsSentToday?.count || 0));
-
-    if (sentCount >= context.planLimits.emailsPerDay) {
-      return {
-        allowed: false,
-        reason: `Limite diário de ${context.planLimits.emailsPerDay} emails excedido`,
-        metadata: {
-          sentToday: sentCount,
-          dailyLimit: context.planLimits.emailsPerDay
-        }
-      };
+    // Na entrega o email já foi aceito e contado; cotas valem só na aceitação.
+    if (metadata?.stage === 'delivery') {
+      return { allowed: true };
     }
 
-    // Verificar rate limits por hora
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const emailsSentLastHour = await db('emails')
-      .where('user_id', userId)
-      .where('created_at', '>=', hourAgo)
-      .count('* as count')
-      .first();
+    const usage = await planLimitsService.getEmailUsage(userId);
+    const quotas = [
+      { sent: usage.emailsLastMinute, limit: context.rateLimits.emailsSending.perMinute, label: 'por minuto', retryAfter: 60 },
+      { sent: usage.emailsLastHour, limit: context.rateLimits.emailsSending.perHour, label: 'por hora', retryAfter: 3600 },
+      { sent: usage.emailsToday, limit: context.planLimits.emailsPerDay, label: 'diário', retryAfter: undefined },
+      { sent: usage.emailsThisMonth, limit: context.planLimits.emailsPerMonth, label: 'mensal', retryAfter: undefined }
+    ];
 
-    const sentLastHour = parseInt(String(emailsSentLastHour?.count || 0));
-
-    if (sentLastHour >= context.rateLimits.emailsSending.perHour) {
-      return {
-        allowed: false,
-        reason: `Rate limit por hora excedido: ${sentLastHour}/${context.rateLimits.emailsSending.perHour}`,
-        metadata: {
-          sentLastHour,
-          hourlyLimit: context.rateLimits.emailsSending.perHour
-        }
-      };
+    for (const quota of quotas) {
+      if (quota.sent >= quota.limit) {
+        return {
+          allowed: false,
+          reason: `Limite ${quota.label} de ${quota.limit} emails do plano ${context.plan} atingido`,
+          metadata: {
+            plan: context.plan,
+            window: quota.label,
+            sent: quota.sent,
+            limit: quota.limit,
+            retryAfter: quota.retryAfter
+          }
+        };
+      }
     }
 
     return {
       allowed: true,
       metadata: {
-        sentToday: sentCount,
+        plan: context.plan,
+        sentToday: usage.emailsToday,
         dailyLimit: context.planLimits.emailsPerDay,
-        remaining: context.planLimits.emailsPerDay - sentCount
+        remaining: context.planLimits.emailsPerDay - usage.emailsToday,
+        sentThisMonth: usage.emailsThisMonth,
+        monthlyLimit: context.planLimits.emailsPerMonth
       }
     };
   }
@@ -446,87 +449,49 @@ export class TenantContextService {
     }
   }
 
-  private getPlanLimits(planName: string): PlanLimits {
-    const planLimitsMap: Record<string, PlanLimits> = {
-      'free': {
-        emailsPerDay: 100,
-        emailsPerMonth: 2000,
-        domainsLimit: 1,
-        webhooksLimit: 2,
-        apiCallsPerHour: 100,
-        storageLimit: 100 // 100MB
-      },
-      'pro': {
-        emailsPerDay: 1000,
-        emailsPerMonth: 25000,
-        domainsLimit: 5,
-        webhooksLimit: 10,
-        apiCallsPerHour: 1000,
-        storageLimit: 1000 // 1GB
-      },
-      'enterprise': {
-        emailsPerDay: 10000,
-        emailsPerMonth: 300000,
-        domainsLimit: 20,
-        webhooksLimit: 50,
-        apiCallsPerHour: 10000,
-        storageLimit: 10000 // 10GB
-      }
-    };
+  private async withCurrentPlan(context: TenantContext): Promise<TenantContext> {
+    // O context fica 5 min em cache; plano, limites e bloqueios precisam valer
+    // logo após o super admin alterá-los, inclusive nos workers.
+    const planState = await planLimitsService.getAccountPlanState(context.userId);
+    const planLimits = this.getPlanLimits(planState);
+    const rateLimits = this.getRateLimits(planState);
 
-    return planLimitsMap[planName] || planLimitsMap['free'];
+    return {
+      ...context,
+      plan: planState.plan.slug,
+      planState,
+      planLimits,
+      rateLimits,
+      isActive: context.isActive && !planState.isSuspended,
+      dailyEmailLimit: planLimits.emailsPerDay,
+      hourlyEmailLimit: rateLimits.emailsSending.perHour,
+      perMinuteEmailLimit: rateLimits.emailsSending.perMinute
+    };
   }
 
-  private getRateLimits(planName: string): RateLimits {
-    const rateLimitsMap: Record<string, RateLimits> = {
-      'free': {
-        emailsSending: {
-          perMinute: 2,
-          perHour: 10,
-          perDay: 100
-        },
-        apiCalls: {
-          perMinute: 5,
-          perHour: 100
-        },
-        webhookCalls: {
-          perMinute: 1,
-          perHour: 10
-        }
-      },
-      'pro': {
-        emailsSending: {
-          perMinute: 10,
-          perHour: 100,
-          perDay: 1000
-        },
-        apiCalls: {
-          perMinute: 50,
-          perHour: 1000
-        },
-        webhookCalls: {
-          perMinute: 5,
-          perHour: 50
-        }
-      },
-      'enterprise': {
-        emailsSending: {
-          perMinute: 50,
-          perHour: 500,
-          perDay: 10000
-        },
-        apiCalls: {
-          perMinute: 200,
-          perHour: 10000
-        },
-        webhookCalls: {
-          perMinute: 20,
-          perHour: 200
-        }
-      }
+  private getPlanLimits(state: AccountPlanState): PlanLimits {
+    const unenforced = UNENFORCED_LIMITS[state.plan.slug] || UNENFORCED_LIMITS.free;
+    return {
+      emailsPerDay: state.limits.emailsPerDay,
+      emailsPerMonth: state.limits.emailsPerMonth,
+      domainsLimit: state.limits.domainsLimit,
+      webhooksLimit: state.limits.webhooksLimit,
+      apiCallsPerHour: unenforced.apiCalls.perHour,
+      storageLimit: unenforced.storageLimit
     };
+  }
 
-    return rateLimitsMap[planName] || rateLimitsMap['free'];
+  private getRateLimits(state: AccountPlanState): RateLimits {
+    const unenforced = UNENFORCED_LIMITS[state.plan.slug] || UNENFORCED_LIMITS.free;
+    return {
+      emailsSending: {
+        perMinute: state.limits.emailsPerMinute,
+        perHour: state.limits.emailsPerHour,
+        perDay: state.limits.emailsPerDay
+      },
+      apiCalls: unenforced.apiCalls,
+      webhookCalls: unenforced.webhookCalls
+    };
   }
 
   private async getTenantSettings(userId: number): Promise<TenantSettings> {

@@ -1068,6 +1068,7 @@ model emails {
   @@index([to_email], map: "emails_to_email_index")
   @@index([message_id], map: "emails_message_id_index")
   @@index([user_id, status], map: "emails_user_id_status_index")
+  @@index([user_id, created_at], map: "emails_user_id_created_at_index")
 }
 
 model health_checks {
@@ -1908,8 +1909,18 @@ model account_subscriptions {
   account_user_id           Int                  @unique(map: "account_subscriptions_account_user_id_unique")
   plan_name                 String               @default("free") @db.VarChar(80)
   status                    String               @default("active") @db.VarChar(40)
+  // Legado: gravados pelo painel antigo e nunca aplicados. Os limites
+  // efetivos vem do plano (platform_plans) e das colunas override_* abaixo.
   monthly_email_limit       Int                  @default(1000)
   api_rate_limit_per_minute Int                  @default(120)
+  // Overrides por conta; null = usa o limite do plano.
+  override_emails_per_minute Int?
+  override_emails_per_hour  Int?
+  override_emails_per_day   Int?
+  override_emails_per_month Int?
+  override_domains_limit    Int?
+  override_webhooks_limit   Int?
+  notes                     String?
   started_at                DateTime?
   expires_at                DateTime?
   payment_provider          String?              @db.VarChar(80)
@@ -1920,6 +1931,27 @@ model account_subscriptions {
   users                     users                @relation(fields: [account_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([status, plan_name], map: "account_subscriptions_status_plan_name_index")
+}
+
+model platform_plans {
+  id                  Int      @id @default(autoincrement())
+  slug                String   @unique(map: "platform_plans_slug_unique") @db.VarChar(80)
+  name                String   @db.VarChar(120)
+  description         String?
+  monthly_price_cents Int      @default(0)
+  emails_per_minute   Int
+  emails_per_hour     Int
+  emails_per_day      Int
+  emails_per_month    Int
+  domains_limit       Int
+  webhooks_limit      Int
+  is_active           Boolean  @default(true)
+  is_default          Boolean  @default(false)
+  sort_order          Int      @default(0)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @default(now())
+
+  @@index([is_active, sort_order], map: "platform_plans_is_active_sort_order_index")
 }
 
 model account_security_flags {

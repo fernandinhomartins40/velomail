@@ -460,13 +460,25 @@ export const superAdminApi = {
 
   updateAccountPlan: (accountId: number, data: {
     plan_name: string;
-    status?: string;
-    monthly_email_limit?: number;
-    api_rate_limit_per_minute?: number;
+    status?: 'active' | 'trialing' | 'past_due' | 'canceled';
     expires_at?: string | null;
+    overrides?: Partial<Record<
+      'emailsPerMinute' | 'emailsPerHour' | 'emailsPerDay' | 'emailsPerMonth' | 'domainsLimit' | 'webhooksLimit',
+      number | null
+    >>;
+    notes?: string | null;
     reason?: string;
   }) =>
     api.patch(`/super-admin/accounts/${accountId}/plan`, data),
+
+  getPlans: () =>
+    api.get('/super-admin/plans'),
+
+  createPlan: (data: Record<string, unknown>) =>
+    api.post('/super-admin/plans', data),
+
+  updatePlan: (planId: number, data: Record<string, unknown>) =>
+    api.patch(`/super-admin/plans/${planId}`, data),
 
   updateAccountSecurity: (accountId: number, data: {
     is_suspended?: boolean;

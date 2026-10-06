@@ -5,6 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import db from '../config/database';
 import { getAccountUserId } from '../utils/accountContext';
 import { getRouteParam } from '../utils/routeParams';
+import { planLimitsService } from '../services/PlanLimitsService';
 
 const router = Router();
 router.use(authenticateJWT);
@@ -53,6 +54,7 @@ router.get('/', requirePermission('domain:read'), asyncHandler(async (req: Authe
 
 router.post('/', requirePermission('domain:write'), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const accountUserId = getAccountUserId(req);
+  await planLimitsService.assertResourceLimit(accountUserId, 'domains');
   const insertResult = await db('domains').insert({
     ...req.body,
     user_id: accountUserId,

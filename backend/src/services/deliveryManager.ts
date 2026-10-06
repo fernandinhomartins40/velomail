@@ -168,6 +168,8 @@ export class DeliveryManager {
           operation: 'send_email',
           resource: emailData.from.split('@')[1],
           type: 'email_send',
+          // Cota já validada na aceitação (emailProcessor); aqui só bloqueios.
+          metadata: { stage: 'delivery' },
           data: {
             from: emailData.from,
             to: emailData.to,
@@ -297,6 +299,7 @@ export class DeliveryManager {
               operation: 'send_email',
               resource: delivery.from_address.split('@')[1],
               type: 'email_send',
+              metadata: { stage: 'delivery' },
               data: {
                 from: delivery.from_address,
                 to: delivery.to_address,

@@ -13,6 +13,7 @@ import { resolveInsertedId } from '../utils/insertedId';
 import { getAccountUserId } from '../utils/accountContext';
 import { assertSafeWebhookUrl } from '../utils/urlSecurity';
 import { webhookService } from '../services/webhookService';
+import { planLimitsService } from '../services/PlanLimitsService';
 
 const router = Router();
 
@@ -152,6 +153,8 @@ router.post('/',
       error: error instanceof Error ? error.message : 'Invalid webhook URL'
     });
   }
+
+  await planLimitsService.assertResourceLimit(accountUserId, 'webhooks');
 
   const insertResult = await db('webhooks').insert({
     url: webhookUrl,

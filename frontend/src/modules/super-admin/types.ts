@@ -36,8 +36,70 @@ export interface AccountRow {
   email_sending_blocked?: boolean
   is_under_review?: boolean
   plan_name?: string
-  monthly_email_limit?: number
+  plan_status?: string
   created_at: string
+}
+
+export interface PlanLimits {
+  emailsPerMinute: number
+  emailsPerHour: number
+  emailsPerDay: number
+  emailsPerMonth: number
+  domainsLimit: number
+  webhooksLimit: number
+}
+
+export type PlanLimitKey = keyof PlanLimits
+
+export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled'
+
+export interface PlanRow {
+  id: number
+  slug: string
+  name: string
+  description: string | null
+  monthly_price_cents: number
+  emails_per_minute: number
+  emails_per_hour: number
+  emails_per_day: number
+  emails_per_month: number
+  domains_limit: number
+  webhooks_limit: number
+  is_active: boolean
+  is_default: boolean
+  sort_order: number
+  accounts: number
+}
+
+export type PlanInput = Omit<PlanRow, 'id' | 'accounts'>
+
+export interface AccountPlanDetails {
+  account: {
+    id: number
+    name: string
+    email: string
+    plan_notes?: string | null
+  }
+  plan: {
+    slug: string
+    name: string
+    source: 'subscription' | 'legacy' | 'default'
+    status: string | null
+    expires_at: string | null
+    limits: PlanLimits
+    plan_limits: PlanLimits
+    overridden_limits: PlanLimitKey[]
+    is_suspended: boolean
+    sending_blocked: boolean
+  }
+  usage: {
+    emailsLastMinute: number
+    emailsLastHour: number
+    emailsToday: number
+    emailsThisMonth: number
+    domains: number
+    activeWebhooks: number
+  }
 }
 
 export interface UserRow {

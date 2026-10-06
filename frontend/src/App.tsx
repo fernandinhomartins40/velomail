@@ -46,6 +46,7 @@ const SuperAdminResetPassword = lazy(() => import('./pages/SuperAdminResetPasswo
 const SuperAdminLayout = lazy(() => import('./modules/super-admin/SuperAdminLayout').then(m => ({ default: m.SuperAdminLayout })));
 const SuperAdminOverviewPage = lazy(() => import('./modules/super-admin/pages/SuperAdminOverviewPage').then(m => ({ default: m.SuperAdminOverviewPage })));
 const SuperAdminAccountsPage = lazy(() => import('./modules/super-admin/pages/SuperAdminAccountsPage').then(m => ({ default: m.SuperAdminAccountsPage })));
+const SuperAdminPlansPage = lazy(() => import('./modules/super-admin/pages/SuperAdminPlansPage').then(m => ({ default: m.SuperAdminPlansPage })));
 const SuperAdminUsersPage = lazy(() => import('./modules/super-admin/pages/SuperAdminUsersPage').then(m => ({ default: m.SuperAdminUsersPage })));
 const SuperAdminDeliverabilityPage = lazy(() => import('./modules/super-admin/pages/SuperAdminDeliverabilityPage').then(m => ({ default: m.SuperAdminDeliverabilityPage })));
 const SuperAdminIntegrationsPage = lazy(() => import('./modules/super-admin/pages/SuperAdminIntegrationsPage').then(m => ({ default: m.SuperAdminIntegrationsPage })));
@@ -217,6 +218,14 @@ function AppRoutes() {
                   element={
                     <Suspense fallback={<LoadingSpinner />}>
                       <SuperAdminAccountsPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="plans"
+                  element={
+                    <Suspense fallback={<LoadingSpinner />}>
+                      <SuperAdminPlansPage />
                     </Suspense>
                   }
                 />

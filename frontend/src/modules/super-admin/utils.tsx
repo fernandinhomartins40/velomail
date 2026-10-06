@@ -12,3 +12,6 @@ export const boolBadge = (value: boolean, enabled: string, disabled: string) => 
     {value ? enabled : disabled}
   </Badge>
 )
+
+export const formatNumber = (value: number | null | undefined) =>
+  Number(value || 0).toLocaleString('pt-BR')

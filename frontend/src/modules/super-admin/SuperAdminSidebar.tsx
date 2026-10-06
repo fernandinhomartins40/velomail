@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   Activity,
   BarChart3,
+  CreditCard,
   Link2,
   Search,
   ShieldCheck,
@@ -20,6 +21,7 @@ interface SuperAdminSidebarProps {
 const navigation = [
   { label: 'Visao Geral', to: '/super-admin/overview', icon: BarChart3 },
   { label: 'Contas', to: '/super-admin/accounts', icon: ShieldCheck },
+  { label: 'Planos', to: '/super-admin/plans', icon: CreditCard },
   { label: 'Usuarios', to: '/super-admin/users', icon: Users },
   { label: 'Entregabilidade', to: '/super-admin/deliverability', icon: Activity },
   { label: 'Integracoes', to: '/super-admin/integrations', icon: Link2 },

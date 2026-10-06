@@ -163,7 +163,6 @@ export function SuperAdmin() {
       if (!planAccountId) throw new Error('Selecione uma conta')
       await superAdminApi.updateAccountPlan(planAccountId, {
         plan_name: planName,
-        monthly_email_limit: Number(planEmailLimit),
         reason: 'Atualizacao operacional'
       })
     },
