@@ -10,7 +10,6 @@ import {
   Mail,
   MousePointer,
   RefreshCw,
-  Sparkles,
   TrendingUp,
   Users,
   XCircle,
@@ -21,6 +20,7 @@ import { useSettingsStore } from '@/lib/store'
 import { cn, formatNumber, formatRelativeTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PageHeader } from '@/components/ui/page'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { veloMailChartColors } from '@/lib/theme'
 
@@ -145,8 +145,6 @@ export function Analytics() {
   const clickRate = toNumber(overview.click_rate)
   const bounceRate = toNumber(overview.bounce_rate)
 
-  const bestEmail = topEmails[0]
-  const strongestDomain = topDomains[0]
   const latestChartPoint = chart[chart.length - 1]
   const totalChartVolume = chart.reduce((acc: number, row: any) => acc + toNumber(row.sent), 0)
 
@@ -214,98 +212,26 @@ export function Analytics() {
 
   return (
     <div className="space-y-6">
-      <section className="vm-page-hero">
-        <div className="relative grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="vm-status vm-status-info">Painel vivo</span>
-              <span className="vm-status vm-status-neutral">{timeRange}</span>
-              {domainId && <span className="vm-status vm-status-neutral">Domínio filtrado</span>}
-              {isFetching && <span className="vm-status vm-status-warning">Atualizando</span>}
-            </div>
-
-            <div className="space-y-2">
-              <h1 className="vm-page-title">Analytics</h1>
-              <p className="vm-page-description">
-                Visual mais direto para entender volume, aceite SMTP, abertura, clique e risco operacional sem precisar escavar tabelas.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Volume</div>
-                <div className="vm-hero-value">{formatNumber(totalSent)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">emails no período</div>
-              </div>
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Melhor assunto</div>
-                <div className="mt-2 line-clamp-2 text-base font-semibold text-foreground">{bestEmail?.subject || 'Sem histórico suficiente'}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {bestEmail ? `${Number(bestEmail.open_rate || 0).toFixed(1)}% abertura` : 'Envie campanhas para comparar'}
-                </div>
-              </div>
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Domínio líder</div>
-                <div className="mt-2 text-base font-semibold text-foreground">{strongestDomain?.domain || 'Sem domínio líder'}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {strongestDomain ? `${Number(strongestDomain.delivery_rate || 0).toFixed(1)}% aceite SMTP` : 'Sem volume suficiente'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col justify-between gap-4 rounded-xl border bg-card p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="vm-hero-label">Leitura rápida</div>
-                <div className="mt-2 text-xl font-semibold text-foreground">Pulso do funil</div>
-              </div>
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Aceite SMTP</span>
-                  <span className="font-medium text-foreground">{deliveryRate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(deliveryRate, metricStyles.delivered.bar)}
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Abertura</span>
-                  <span className="font-medium text-foreground">{openRate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(openRate, metricStyles.opened.bar)}
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Clique</span>
-                  <span className="font-medium text-foreground">{clickRate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(clickRate, metricStyles.clicked.bar)}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {analyticsRanges.map((range) => (
-                <Button
-                  key={range}
-                  size="sm"
-                  variant={timeRange === range ? 'default' : 'outline'}
-                  onClick={() => setTimeRange(range)}
-                >
-                  {range}
-                </Button>
-              ))}
-              <Button variant="outline" size="sm" onClick={() => handleRefresh()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Atualizar
+      <PageHeader
+        title="Métricas"
+        actions={
+          <>
+            {analyticsRanges.map((range) => (
+              <Button
+                key={range}
+                size="sm"
+                variant={timeRange === range ? 'default' : 'outline'}
+                onClick={() => setTimeRange(range)}
+              >
+                {range}
               </Button>
-            </div>
-          </div>
-        </div>
-      </section>
+            ))}
+            <Button variant="ghost" size="sm" onClick={() => handleRefresh()} aria-label="Atualizar">
+              <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
+            </Button>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">

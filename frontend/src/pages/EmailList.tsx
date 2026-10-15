@@ -242,7 +242,7 @@ export function EmailList() {
   if (error) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Emails" description="Gerencie seus emails enviados" />
+        <PageHeader title="Envios" />
         
         <Card>
           <CardContent className="flex items-center justify-center py-12">

@@ -196,7 +196,6 @@ export function SendEmail() {
     <div className="space-y-6">
       <PageHeader
         title="Novo email"
-        description="Envie um email transacional sem trilhas paralelas."
         className="gap-3"
         actions={<Button variant="ghost" onClick={() => navigate('/app/emails')}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -210,7 +209,7 @@ export function SendEmail() {
             <div className="space-y-6 lg:col-span-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Informacoes do email</CardTitle>
+                  <CardTitle>Email</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -272,7 +271,7 @@ export function SendEmail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Conteudo</CardTitle>
+                  <CardTitle>Conteúdo</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Tabs defaultValue="text" className="w-full">
@@ -362,7 +361,7 @@ export function SendEmail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Configuracoes</CardTitle>
+                  <CardTitle>Opções</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
@@ -387,7 +386,7 @@ export function SendEmail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Variaveis personalizadas</CardTitle>
+                  <CardTitle>Variáveis</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">

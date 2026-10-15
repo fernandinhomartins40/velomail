@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,7 +16,6 @@ import {
   UserRound,
   UserRoundPlus,
   Users,
-  Webhook,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -30,7 +29,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { PageHeader } from '@/components/ui/page'
+import { useAccountUsage } from '@/hooks/useAccountUsage'
 import { authApi, organizationsApi, settingsApi } from '@/lib/api'
+import { formatNumber } from '@/lib/utils'
 import { useAuthStore, useSettingsStore, useThemeStore } from '@/lib/store'
 
 type WorkspaceRole = 'owner' | 'admin' | 'member'
@@ -183,15 +185,49 @@ const notificationLabels: Record<string, string> = {
 }
 
 const roleLabels: Record<WorkspaceRole, string> = {
-  owner: 'Owner',
+  owner: 'Dono',
   admin: 'Admin',
-  member: 'Member',
+  member: 'Membro',
 }
 
-const planTone = (plan: string) => {
-  if (plan === 'enterprise') return 'vm-status vm-status-warning'
-  if (plan === 'pro') return 'vm-status vm-status-success'
-  return 'vm-status vm-status-neutral'
+function PlanCard() {
+  const { data } = useAccountUsage()
+  if (!data) return null
+
+  const { limits } = data.plan
+  const rows = [
+    { label: 'Emails no mês', used: data.usage.emailsThisMonth, limit: limits.emailsPerMonth },
+    { label: 'Emails hoje', used: data.usage.emailsToday, limit: limits.emailsPerDay },
+    { label: 'Domínios', used: data.usage.domains, limit: limits.domainsLimit },
+    { label: 'Webhooks', used: data.usage.activeWebhooks, limit: limits.webhooksLimit },
+  ]
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Plano {data.plan.name}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map((row) => {
+          const percentage = row.limit > 0 ? Math.min(100, (row.used / row.limit) * 100) : 0
+          return (
+            <div key={row.label} className="space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{row.label}</span>
+                <span className="font-medium">{formatNumber(row.used)} / {formatNumber(row.limit)}</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={percentage >= 90 ? 'h-full bg-destructive' : 'h-full bg-primary'}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
 }
 
 export function Settings() {
@@ -210,11 +246,11 @@ export function Settings() {
   })
   const [smtpPassword, setSmtpPassword] = useState('')
   const sendingToggleItems: ToggleSettingItem[] = [
-    { key: 'open_tracking', label: 'Open tracking', Icon: Mail },
-    { key: 'click_tracking', label: 'Click tracking', Icon: Send },
-    { key: 'bounce_handling', label: 'Bounce handling', Icon: Shield },
-    { key: 'unsubscribe_tracking', label: 'Unsubscribe tracking', Icon: Globe2 },
-    { key: 'suppression_list_enabled', label: 'Suppression list', Icon: Bell },
+    { key: 'open_tracking', label: 'Rastrear aberturas', Icon: Mail },
+    { key: 'click_tracking', label: 'Rastrear cliques', Icon: Send },
+    { key: 'bounce_handling', label: 'Tratar bounces', Icon: Shield },
+    { key: 'unsubscribe_tracking', label: 'Rastrear descadastros', Icon: Globe2 },
+    { key: 'suppression_list_enabled', label: 'Bloquear endereços com falha', Icon: Bell },
   ]
 
   const settingsQuery = useQuery({
@@ -255,41 +291,6 @@ export function Settings() {
   const receivedInvitations = workspaceData?.received_invitations || []
   const memberships = workspaceData?.workspace.memberships || []
   const canManageWorkspace = settingsForm?.workspace.role === 'owner' || settingsForm?.workspace.role === 'admin'
-
-  const quickStats = useMemo(() => {
-    if (!settingsForm) return []
-
-    return [
-      {
-        label: 'Plano ativo',
-        value: settingsForm.plan.name.toUpperCase(),
-        icon: Building2,
-        tone: planTone(settingsForm.plan.name),
-      },
-      {
-        label: 'Workspace',
-        value: settingsForm.workspace.organization_name,
-        icon: Users,
-        tone: 'vm-status vm-status-info',
-      },
-      {
-        label: 'Tracking',
-        value: settingsForm.account_preferences.sending_settings.open_tracking ? 'Ligado' : 'Desligado',
-        icon: Send,
-        tone: settingsForm.account_preferences.sending_settings.open_tracking
-          ? 'vm-status vm-status-success'
-          : 'vm-status vm-status-danger',
-      },
-      {
-        label: 'Seguranca',
-        value: settingsForm.profile.is_active ? 'Conta ativa' : 'Conta bloqueada',
-        icon: Shield,
-        tone: settingsForm.profile.is_active
-          ? 'vm-status vm-status-info'
-          : 'vm-status vm-status-danger',
-      },
-    ]
-  }, [settingsForm])
 
   const invalidateSettings = async () => {
     await Promise.all([
@@ -408,46 +409,18 @@ export function Settings() {
 
   return (
     <div className="space-y-6">
-      <section className="vm-page-hero">
-        <div className="relative space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge className={planTone(settingsForm.plan.name)}>{settingsForm.plan.name.toUpperCase()}</Badge>
-            <Badge variant="outline">{roleLabels[settingsForm.workspace.role]}</Badge>
-            <Badge variant="outline">{settingsForm.profile.is_verified ? 'Email verificado' : 'Verificacao pendente'}</Badge>
-          </div>
-          <div className="space-y-2">
-            <h1 className="vm-page-title">Configuracoes da conta e do workspace</h1>
-            <p className="vm-page-description">
-              A pagina agora concentra preferencias pessoais, defaults operacionais da conta, tracking,
-              branding, webhooks e colaboracao do workspace.
-            </p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            {quickStats.map((item) => {
-              const Icon = item.icon
-              return (
-                <div key={item.label} className={`rounded-2xl border p-4 ${item.tone}`}>
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em]">
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </div>
-                  <div className="mt-3 text-lg font-semibold">{item.value}</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </section>
+      <PageHeader title="Configurações" />
 
       <Tabs defaultValue="account" className="space-y-4">
         <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-2xl bg-transparent p-0">
           <TabsTrigger value="account">Conta</TabsTrigger>
-          <TabsTrigger value="workspace">Workspace</TabsTrigger>
+          <TabsTrigger value="workspace">Equipe</TabsTrigger>
           <TabsTrigger value="sending">Envio</TabsTrigger>
-          <TabsTrigger value="experience">Experiencia</TabsTrigger>
+          <TabsTrigger value="experience">Preferências</TabsTrigger>
         </TabsList>
 
         <TabsContent value="account" className="space-y-6">
+          <PlanCard />
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
             <Card>
               <CardHeader>
@@ -1081,7 +1054,7 @@ export function Settings() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Palette className="h-5 w-5" />
-                    Branding operacional
+                    Assinatura dos emails
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1106,91 +1079,9 @@ export function Settings() {
                         disabled={!canManageWorkspace}
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="branding-logo-url">Logo URL</Label>
-                      <Input
-                        id="branding-logo-url"
-                        value={settingsForm.account_preferences.branding_settings.company_logo_url}
-                        onChange={(event) =>
-                          setSettingsForm((current) => current ? ({
-                            ...current,
-                            account_preferences: {
-                              ...current.account_preferences,
-                              branding_settings: {
-                                ...current.account_preferences.branding_settings,
-                                company_logo_url: event.target.value,
-                              },
-                            },
-                          }) : current)
-                        }
-                        disabled={!canManageWorkspace}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="branding-domain">Custom domain</Label>
-                      <Input
-                        id="branding-domain"
-                        value={settingsForm.account_preferences.branding_settings.custom_domain}
-                        onChange={(event) =>
-                          setSettingsForm((current) => current ? ({
-                            ...current,
-                            account_preferences: {
-                              ...current.account_preferences,
-                              branding_settings: {
-                                ...current.account_preferences.branding_settings,
-                                custom_domain: event.target.value,
-                              },
-                            },
-                          }) : current)
-                        }
-                        disabled={!canManageWorkspace}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <Label htmlFor="branding-primary-color">Cor primaria</Label>
-                      <Input
-                        id="branding-primary-color"
-                        value={settingsForm.account_preferences.branding_settings.primary_color}
-                        onChange={(event) =>
-                          setSettingsForm((current) => current ? ({
-                            ...current,
-                            account_preferences: {
-                              ...current.account_preferences,
-                              branding_settings: {
-                                ...current.account_preferences.branding_settings,
-                                primary_color: event.target.value,
-                              },
-                            },
-                          }) : current)
-                        }
-                        disabled={!canManageWorkspace}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="branding-secondary-color">Cor secundaria</Label>
-                      <Input
-                        id="branding-secondary-color"
-                        value={settingsForm.account_preferences.branding_settings.secondary_color}
-                        onChange={(event) =>
-                          setSettingsForm((current) => current ? ({
-                            ...current,
-                            account_preferences: {
-                              ...current.account_preferences,
-                              branding_settings: {
-                                ...current.account_preferences.branding_settings,
-                                secondary_color: event.target.value,
-                              },
-                            },
-                          }) : current)
-                        }
-                        disabled={!canManageWorkspace}
-                      />
-                    </div>
                   </div>
                   <div>
-                    <Label htmlFor="branding-footer-text">Texto de rodape</Label>
+                    <Label htmlFor="branding-footer-text">Rodapé</Label>
                     <Textarea
                       id="branding-footer-text"
                       value={settingsForm.account_preferences.branding_settings.footer_text}
@@ -1216,57 +1107,8 @@ export function Settings() {
                     disabled={!canManageWorkspace || saveSettingsMutation.isPending}
                   >
                     <Save className="mr-2 h-4 w-4" />
-                    Salvar branding
+                    Salvar
                   </Button>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Webhook className="h-5 w-5" />
-                    Webhooks da conta
-                  </CardTitle>
-                  <CardDescription>
-                    O pipeline ativo envia apenas para endpoints criados na pagina de Webhooks.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="rounded-xl border border-[hsl(var(--warning)/.3)] bg-[hsl(var(--warning)/.12)] p-4 text-sm leading-6 text-foreground">
-                    O bloco antigo de "default webhook" foi removido desta tela porque nao participava do fluxo real
-                    de entrega. Para producao, crie endpoints explicitos em <span className="font-medium">Webhooks</span>,
-                    onde o secret e gerado/exibido no momento da criacao e os logs acompanham o envio.
-                  </div>
-                  <div className="rounded-2xl border p-4">
-                    <div className="text-sm text-muted-foreground">Status legado encontrado</div>
-                    <div className="mt-2 font-medium text-foreground">
-                      {settingsForm.account_preferences.webhook_settings.enabled ? 'Configuracao antiga habilitada' : 'Nenhuma configuracao antiga habilitada'}
-                    </div>
-                    {settingsForm.account_preferences.webhook_settings.webhook_url ? (
-                      <div className="mt-2 break-all text-sm text-muted-foreground">
-                        URL armazenada: {settingsForm.account_preferences.webhook_settings.webhook_url}
-                      </div>
-                    ) : null}
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Secret configurado: {settingsForm.account_preferences.webhook_settings.webhook_secret_configured ? 'sim' : 'nao'}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <Button asChild>
-                      <Link to="/app/webhooks">Abrir Webhooks</Link>
-                    </Button>
-                    <Button asChild variant="outline">
-                      <Link to="/app/developers">Ver docs de integracao</Link>
-                    </Button>
-                  </div>
-                  <div className="flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="font-medium">Motivo da mudanca</div>
-                      <div className="text-sm text-muted-foreground">
-                        Agora a superficie do produto reflete apenas os endpoints que o backend realmente processa.
-                      </div>
-                    </div>
-                    <Badge variant="outline">Fluxo explicito por endpoint</Badge>
-                  </div>
                 </CardContent>
               </Card>
             </div>
