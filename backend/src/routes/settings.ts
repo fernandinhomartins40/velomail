@@ -106,7 +106,9 @@ router.get('/usage', requirePermission('settings:read'), asyncHandler(async (req
     planLimitsService.getAccountPlanState(accountUserId),
     planLimitsService.getUsage(accountUserId),
     db('domains').where('user_id', accountUserId).where('is_verified', true).count('* as count').first(),
-    db('api_keys').where('user_id', accountUserId).where('is_active', true).count('* as count').first(),
+    // Chaves da IA (MCP) nao enviam emails; so chaves de envio contam no onboarding.
+    db('api_keys').where('user_id', accountUserId).where('is_active', true)
+      .whereNot('key_type', 'ai_agent').count('* as count').first(),
     db('emails').where('user_id', accountUserId).count('* as count').first()
   ]);
 

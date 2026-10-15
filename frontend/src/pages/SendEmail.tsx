@@ -1,440 +1,233 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { ArrowLeft, Plus, Send, X } from 'lucide-react'
+import { Loader2, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { DomainSelector } from '@/components/domain/DomainSelector'
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { SafeHTML } from '@/components/ui/SafeHTML'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { PageHeader } from '@/components/ui/page'
 import { settingsApi, templateApi } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { useEmailSend } from '@/hooks/useEmailSend'
-import { useHasVerifiedDomains } from '@/hooks/useUserDomains'
+import { useVerifiedDomains, type UserDomain } from '@/hooks/useUserDomains'
 
-const sendEmailSchema = z.object({
-  to: z.string().email('Email invalido'),
-  from: z.string().min(1, 'Selecione um dominio remetente').email('Email remetente invalido'),
-  subject: z.string().min(1, 'Assunto e obrigatorio'),
-  html: z.string().optional(),
-  text: z.string().min(1, 'Conteudo e obrigatorio'),
-  template_id: z.string().optional(),
-  tracking_enabled: z.boolean().default(true),
-})
+type ContentMode = 'text' | 'html' | 'preview'
 
-type SendEmailForm = z.infer<typeof sendEmailSchema>
+const selectClassName = 'h-10 rounded-lg border border-input bg-background px-3 text-sm'
+const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 
-const parseTemplateVariables = (value: unknown): Record<string, string> => {
-  if (!value) {
-    return {}
-  }
-
+/** Variaveis podem vir como array de nomes, objeto ou JSON de qualquer um dos dois. */
+const parseVariableNames = (value: unknown): string[] => {
+  let parsed = value
   if (typeof value === 'string') {
     try {
-      const parsed = JSON.parse(value)
-      if (Array.isArray(parsed)) {
-        return Object.fromEntries(parsed.map((item) => [String(item), '']))
-      }
-
-      return typeof parsed === 'object' && parsed ? parsed : {}
+      parsed = JSON.parse(value)
     } catch {
-      return {}
+      return []
     }
   }
-
-  if (Array.isArray(value)) {
-    return Object.fromEntries(value.map((item) => [String(item), '']))
-  }
-
-  if (typeof value === 'object') {
-    return value as Record<string, string>
-  }
-
-  return {}
+  if (Array.isArray(parsed)) return parsed.map(String)
+  if (parsed && typeof parsed === 'object') return Object.keys(parsed)
+  return []
 }
 
 export function SendEmail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [customVariables, setCustomVariables] = useState<Record<string, string>>({})
-  const [newVarKey, setNewVarKey] = useState('')
-  const [newVarValue, setNewVarValue] = useState('')
-  const hasVerifiedDomains = useHasVerifiedDomains()
-  const sendEmailMutation = useEmailSend()
+  const sendMutation = useEmailSend()
 
-  const form = useForm<SendEmailForm>({
-    resolver: zodResolver(sendEmailSchema),
-    defaultValues: {
-      from: '',
-      to: '',
-      subject: '',
-      html: '',
-      text: '',
-      template_id: '',
-      tracking_enabled: true,
-    },
-  })
+  const { data: domainsData, isLoading: domainsLoading } = useVerifiedDomains()
+  const verifiedDomains: UserDomain[] = domainsData?.data?.domains || []
+  const { data: templatesResponse } = useQuery({ queryKey: ['templates'], queryFn: templateApi.getTemplates })
+  const { data: settingsResponse } = useQuery({ queryKey: ['settings'], queryFn: settingsApi.getSettings })
+  const templates: any[] = templatesResponse?.data?.templates || []
+  const sendingSettings = settingsResponse?.data?.settings?.account_preferences?.sending_settings
 
-  const { data: templatesResponse } = useQuery({
-    queryKey: ['templates'],
-    queryFn: templateApi.getTemplates,
-  })
+  const [fromLocal, setFromLocal] = useState('contato')
+  const [fromDomain, setFromDomain] = useState('')
+  const [to, setTo] = useState('')
+  const [subject, setSubject] = useState('')
+  const [text, setText] = useState('')
+  const [html, setHtml] = useState('')
+  const [mode, setMode] = useState<ContentMode>('text')
+  const [templateId, setTemplateId] = useState('')
+  const [variables, setVariables] = useState<Record<string, string>>({})
 
-  const { data: settingsResponse } = useQuery({
-    queryKey: ['settings', 'send-email-defaults'],
-    queryFn: settingsApi.getSettings,
-  })
+  // Remetente padrao das configuracoes, ou o primeiro dominio verificado.
+  useEffect(() => {
+    if (fromDomain || verifiedDomains.length === 0) return
+    const defaultFrom: string = sendingSettings?.default_from_email || ''
+    const [local, domain] = defaultFrom.split('@')
+    const match = verifiedDomains.find((item) => item.domain_name === domain)
+    if (match && local) {
+      setFromLocal(local)
+      setFromDomain(match.domain_name)
+    } else {
+      setFromDomain(verifiedDomains[0].domain_name)
+    }
+  }, [fromDomain, verifiedDomains, sendingSettings])
 
-  const templates = templatesResponse?.data?.templates || []
+  const selectedTemplate = useMemo(
+    () => templates.find((item) => String(item.id) === templateId),
+    [templates, templateId]
+  )
+  const variableNames = useMemo(() => parseVariableNames(selectedTemplate?.variables), [selectedTemplate])
+
+  const applyTemplate = (id: string) => {
+    setTemplateId(id)
+    const template = templates.find((item) => String(item.id) === id)
+    if (!template) return
+    setSubject(template.subject || '')
+    setHtml(template.html_content || '')
+    setText(template.text_content || '')
+    setMode(template.html_content ? 'html' : 'text')
+    setVariables({})
+  }
 
   useEffect(() => {
-    const settings = settingsResponse?.data?.settings
-    if (!settings) {
-      return
+    const fromUrl = searchParams.get('templateId')
+    if (fromUrl && templates.length > 0 && !templateId) {
+      applyTemplate(fromUrl)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, templates])
 
-    const currentFrom = form.getValues('from')
-    if (!currentFrom && settings.account_preferences?.sending_settings?.default_from_email) {
-      form.setValue('from', settings.account_preferences.sending_settings.default_from_email)
-    }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const from = `${fromLocal.trim()}@${fromDomain}`
 
-    if (typeof settings.account_preferences?.sending_settings?.open_tracking === 'boolean'
-      || typeof settings.account_preferences?.sending_settings?.click_tracking === 'boolean') {
-      form.setValue(
-        'tracking_enabled',
-        settings.account_preferences.sending_settings.open_tracking !== false
-          || settings.account_preferences.sending_settings.click_tracking !== false
-      )
-    }
-  }, [form, settingsResponse?.data?.settings])
+    if (!isEmail(from)) return toast.error('Remetente inválido')
+    if (!isEmail(to)) return toast.error('Destinatário inválido')
+    if (!subject.trim()) return toast.error('Escreva um assunto')
+    if (!text.trim() && !html.trim()) return toast.error('Escreva a mensagem')
 
-  const onSubmit = async (data: SendEmailForm) => {
-    if (!hasVerifiedDomains) {
-      toast.error('Configure pelo menos um dominio verificado para enviar emails')
-      return
-    }
-
-    await sendEmailMutation.mutateAsync({
-      from: data.from,
-      to: data.to,
-      subject: data.subject,
-      html: data.html,
-      text: data.text,
-      template_id: data.template_id || undefined,
-      tracking_enabled: data.tracking_enabled,
-      variables: customVariables,
+    await sendMutation.mutateAsync({
+      from,
+      to: to.trim(),
+      subject,
+      text: text || undefined,
+      html: html || undefined,
+      template_id: templateId || undefined,
+      variables,
+      tracking_enabled: sendingSettings?.open_tracking !== false || sendingSettings?.click_tracking !== false,
     })
     navigate('/app/emails')
   }
 
-  const addCustomVariable = () => {
-    if (newVarKey && newVarValue && !customVariables[newVarKey]) {
-      setCustomVariables((current) => ({ ...current, [newVarKey]: newVarValue }))
-      setNewVarKey('')
-      setNewVarValue('')
-    }
+  if (!domainsLoading && verifiedDomains.length === 0) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Novo email" />
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+            <p className="text-muted-foreground">Para enviar, primeiro configure o seu domínio.</p>
+            <Button asChild>
+              <Link to="/app/domains?mode=setup">Configurar domínio</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
-
-  const removeCustomVariable = (key: string) => {
-    const { [key]: _removed, ...rest } = customVariables
-    setCustomVariables(rest)
-  }
-
-  const updateCustomVariable = (key: string, value: string) => {
-    setCustomVariables((current) => ({
-      ...current,
-      [key]: value,
-    }))
-  }
-
-  const loadTemplate = (templateId: string) => {
-    const template = templates.find((item: any) => item.id.toString() === templateId)
-
-    if (!template) {
-      return
-    }
-
-    form.setValue('template_id', templateId)
-    form.setValue('subject', template.subject || '')
-    form.setValue('html', template.html_content || '')
-    form.setValue('text', template.text_content || '')
-    setCustomVariables(parseTemplateVariables(template.variables))
-  }
-
-  useEffect(() => {
-    const templateIdFromUrl = searchParams.get('templateId')
-    if (!templateIdFromUrl || templates.length === 0) {
-      return
-    }
-
-    const currentTemplateId = form.getValues('template_id')
-    if (currentTemplateId === templateIdFromUrl) {
-      return
-    }
-
-    const templateExists = templates.some((item: any) => String(item.id) === templateIdFromUrl)
-    if (!templateExists) {
-      return
-    }
-
-    loadTemplate(templateIdFromUrl)
-  }, [form, searchParams, templates])
-
-  const htmlPreview = form.watch('html')
-  const textPreview = form.watch('text')
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Novo email"
-        className="gap-3"
-        actions={<Button variant="ghost" onClick={() => navigate('/app/emails')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar
-          </Button>}
-      />
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeader title="Novo email" />
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="space-y-6 lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Email</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="from"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>De</FormLabel>
-                          <FormControl>
-                            <DomainSelector
-                              value={field.value}
-                              onChange={field.onChange}
-                              placeholder="Selecione um dominio verificado"
-                              disabled={!hasVerifiedDomains}
-                              className="w-full"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                          {!hasVerifiedDomains && (
-                            <FormDescription className="text-[hsl(var(--warning))]">
-                              Configure pelo menos um dominio verificado para liberar o envio.
-                            </FormDescription>
-                          )}
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="to"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Para</FormLabel>
-                          <FormControl>
-                            <Input placeholder="destinatario@email.com" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="subject"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Assunto</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Digite o assunto do email" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Conteúdo</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Tabs defaultValue="text" className="w-full">
-                    <TabsList>
-                      <TabsTrigger value="text">Texto</TabsTrigger>
-                      <TabsTrigger value="html">HTML</TabsTrigger>
-                      <TabsTrigger value="preview">Preview</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="text" className="space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="text"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Texto</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="Digite o conteudo do email em texto simples..."
-                                rows={10}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="html" className="space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="html"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>HTML</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="<html><body>Digite o conteudo HTML...</body></html>"
-                                rows={10}
-                                className="font-mono"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="preview">
-                      <div className="rounded-lg border p-4">
-                        {htmlPreview ? (
-                          <SafeHTML html={htmlPreview} strict className="prose max-w-none" />
-                        ) : (
-                          <pre className="whitespace-pre-wrap">{textPreview || 'Nenhum conteudo para preview'}</pre>
-                        )}
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
+      <Card>
+        <CardContent className="p-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="from-local">De</Label>
+              <div className="flex items-center gap-1.5">
+                <Input id="from-local" value={fromLocal} onChange={(event) => setFromLocal(event.target.value)} className="w-32 shrink-0 sm:w-44" />
+                <span className="text-muted-foreground">@</span>
+                <select className={cn(selectClassName, 'min-w-0 flex-1')} value={fromDomain} onChange={(event) => setFromDomain(event.target.value)} aria-label="Domínio">
+                  {verifiedDomains.map((domain) => (
+                    <option key={domain.id} value={domain.domain_name}>{domain.domain_name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="space-y-6">
-              {templates.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Template</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Select onValueChange={loadTemplate}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecionar template" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {templates.map((template: any) => (
-                          <SelectItem key={template.id} value={template.id.toString()}>
-                            {template.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
+            <div className="space-y-2">
+              <Label htmlFor="to">Para</Label>
+              <Input id="to" type="email" placeholder="cliente@email.com" value={to} onChange={(event) => setTo(event.target.value)} />
+            </div>
+
+            {templates.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="template">Template (opcional)</Label>
+                <select id="template" className={cn(selectClassName, 'w-full')} value={templateId} onChange={(event) => applyTemplate(event.target.value)}>
+                  <option value="">Nenhum</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={String(template.id)}>{template.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {variableNames.length > 0 && (
+              <div className="grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-2">
+                {variableNames.map((variable) => (
+                  <div key={variable} className="space-y-1">
+                    <Label htmlFor={`var-${variable}`} className="font-mono text-xs">{`{{${variable}}}`}</Label>
+                    <Input
+                      id={`var-${variable}`}
+                      value={variables[variable] || ''}
+                      onChange={(event) => setVariables({ ...variables, [variable]: event.target.value })}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="subject">Assunto</Label>
+              <Input id="subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="content">Mensagem</Label>
+                <div className="flex rounded-lg border p-0.5 text-xs">
+                  {([['text', 'Texto'], ['html', 'HTML'], ['preview', 'Prévia']] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setMode(value)}
+                      className={cn('rounded-md px-2.5 py-1', mode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {mode === 'text' && (
+                <Textarea id="content" rows={10} placeholder="Escreva sua mensagem..." value={text} onChange={(event) => setText(event.target.value)} />
               )}
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Opções</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="tracking_enabled"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <FormLabel>Tracking</FormLabel>
-                            <FormDescription>
-                              Habilita abertura e clique. Se o email tiver apenas texto, a plataforma gera HTML automaticamente para viabilizar a abertura.
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch checked={field.value} onCheckedChange={field.onChange} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Variáveis</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                    <Input placeholder="chave" value={newVarKey} onChange={(event) => setNewVarKey(event.target.value)} />
-                    <Input placeholder="valor" value={newVarValue} onChange={(event) => setNewVarValue(event.target.value)} />
-                    <Button type="button" onClick={addCustomVariable} className="w-full sm:w-auto">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  {Object.entries(customVariables).length > 0 && (
-                    <div className="space-y-2">
-                      {Object.entries(customVariables).map(([key, value]) => (
-                        <div key={key} className="flex flex-col gap-2 rounded-lg border bg-muted/45 p-2 sm:flex-row sm:items-center">
-                          <div className="font-mono text-sm sm:min-w-[120px]">{key}</div>
-                          <Input
-                            value={value}
-                            onChange={(event) => updateCustomVariable(key, event.target.value)}
-                            placeholder={`Valor para ${key}`}
-                          />
-                          <Button type="button" variant="ghost" size="sm" onClick={() => removeCustomVariable(key)}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex flex-col gap-2">
-                    <Button type="submit" className="w-full" disabled={sendEmailMutation.isPending || !hasVerifiedDomains}>
-                      <Send className="mr-2 h-4 w-4" />
-                      {sendEmailMutation.isPending ? 'Enviando...' : hasVerifiedDomains ? 'Enviar email' : 'Configure um dominio primeiro'}
-                    </Button>
-
-                    <Button type="button" variant="outline" onClick={() => navigate('/app/emails')}>
-                      Cancelar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              {mode === 'html' && (
+                <Textarea id="content" rows={10} className="font-mono text-xs" placeholder="<p>Olá!</p>" value={html} onChange={(event) => setHtml(event.target.value)} />
+              )}
+              {mode === 'preview' && (
+                <SafeHTML strict className="min-h-[240px] rounded-lg border bg-white p-4" html={html || text.replace(/\n/g, '<br />')} />
+              )}
             </div>
-          </div>
-        </form>
-      </Form>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => navigate('/app/emails')}>Cancelar</Button>
+              <Button type="submit" disabled={sendMutation.isPending}>
+                {sendMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                Enviar
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

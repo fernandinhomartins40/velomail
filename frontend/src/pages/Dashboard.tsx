@@ -47,7 +47,7 @@ function GettingStarted({ onboarding, onOpenAi }: { onboarding: AccountUsage['on
     <Card>
       <CardContent className="space-y-4 p-5">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="font-semibold">Primeiros passos</h2>
+          <h2 className="text-base font-semibold">Primeiros passos</h2>
           <span className="text-sm text-muted-foreground">{doneCount} de {steps.length}</span>
         </div>
 
@@ -175,7 +175,7 @@ export function Dashboard() {
       <Card>
         <CardContent className="p-5">
           <div className="mb-3 flex items-center justify-between gap-4">
-            <h2 className="font-semibold">Atividade recente</h2>
+            <h2 className="text-base font-semibold">Atividade recente</h2>
             <div className="flex gap-3 text-sm">
               <Link to="/app/analytics" className="text-muted-foreground hover:text-foreground">Métricas</Link>
               <Link to="/app/emails" className="text-primary hover:underline">Ver todos</Link>

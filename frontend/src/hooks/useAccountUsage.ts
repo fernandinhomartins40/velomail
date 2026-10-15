@@ -33,7 +33,14 @@ export interface AccountUsage {
 export function useAccountUsage() {
   return useQuery({
     queryKey: ['account-usage'],
-    queryFn: async () => (await settingsApi.getUsage()).data as AccountUsage,
+    queryFn: async () => {
+      const data = (await settingsApi.getUsage()).data as AccountUsage
+      // Resposta fora do formato vira erro de query, em vez de quebrar quem le data.plan.
+      if (!data?.plan?.limits || !data?.usage || !data?.onboarding) {
+        throw new Error('Resposta de uso invalida')
+      }
+      return data
+    },
     staleTime: 60_000,
   })
 }

@@ -21,8 +21,8 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
         <div
           className={cn(
             "w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/25 rounded-full peer dark:bg-muted",
-            "peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all",
-            checked ? "bg-primary" : "bg-muted",
+            "after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all",
+            checked ? "bg-primary after:translate-x-full" : "bg-muted",
             className
           )}
         />

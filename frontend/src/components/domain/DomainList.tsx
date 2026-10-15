@@ -1,37 +1,33 @@
-import React, { useState } from 'react';
-import { Card } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Progress } from '../ui/progress';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { DomainDetails } from './DomainDetails';
-import { DomainStatus } from '../../hooks/useDomainSetup';
-import { 
-  Plus, 
-  Settings, 
-  Trash2, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
-  Clock, 
-  XCircle,
-  Eye,
-  Copy,
-  Globe
-} from 'lucide-react';
-import toast from 'react-hot-toast';
-import { format } from 'date-fns';
+import React, { useState } from 'react'
+import { AlertCircle, Globe, Loader2, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { Button } from '../ui/button'
+import { Card } from '../ui/card'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { DropdownMenuItem, RowActions } from '../ui/dropdown-menu'
+import { cn } from '@/lib/utils'
+import type { DomainStatus } from '../../hooks/useDomainSetup'
 
 interface DomainListProps {
-  domains: DomainStatus[];
-  loading: boolean;
-  error: string | null;
-  onReload: () => Promise<void> | void;
-  onRemoveDomain: (domainId: number) => Promise<boolean>;
-  onRefreshDomain: (domainId: number) => Promise<void>;
-  onAddDomain?: () => void;
-  onViewDomain?: (domainId: number) => void;
-  onEditDomain?: (domainId: number) => void;
+  domains: DomainStatus[]
+  loading: boolean
+  error: string | null
+  onReload: () => Promise<void> | void
+  onRemoveDomain: (domainId: number) => Promise<boolean>
+  onRefreshDomain: (domainId: number) => Promise<void>
+  onAddDomain?: () => void
+  onEditDomain?: (domainId: number) => void
+}
+
+const statusInfo = (status: DomainStatus['status']) => {
+  switch (status) {
+    case 'verified':
+      return { label: 'Pronto para enviar', tone: 'vm-status-success' }
+    case 'failed':
+      return { label: 'Com problema', tone: 'vm-status-danger' }
+    default:
+      return { label: 'Aguardando DNS', tone: 'vm-status-warning' }
+  }
 }
 
 export const DomainList: React.FC<DomainListProps> = ({
@@ -42,371 +38,107 @@ export const DomainList: React.FC<DomainListProps> = ({
   onRemoveDomain,
   onRefreshDomain,
   onAddDomain,
-  onViewDomain,
-  onEditDomain
+  onEditDomain,
 }) => {
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [domainToDelete, setDomainToDelete] = useState<DomainStatus | null>(null);
-  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
-  const [refreshingDomains, setRefreshingDomains] = useState<Set<number>>(new Set());
+  const [domainToDelete, setDomainToDelete] = useState<DomainStatus | null>(null)
+  const [refreshingId, setRefreshingId] = useState<number | null>(null)
 
-  const getStatusColor = (status: DomainStatus['status']) => {
-    switch (status) {
-      case 'verified':
-        return 'vm-status vm-status-success';
-      case 'partial':
-        return 'vm-status vm-status-warning';
-      case 'pending':
-        return 'vm-status vm-status-info';
-      case 'failed':
-        return 'vm-status vm-status-danger';
-      default:
-        return 'vm-status vm-status-neutral';
-    }
-  };
-
-  const getStatusIcon = (status: DomainStatus['status']) => {
-    switch (status) {
-      case 'verified':
-        return <CheckCircle2 className="w-4 h-4" />;
-      case 'partial':
-        return <AlertCircle className="w-4 h-4" />;
-      case 'pending':
-        return <Clock className="w-4 h-4" />;
-      case 'failed':
-        return <XCircle className="w-4 h-4" />;
-      default:
-        return <Clock className="w-4 h-4" />;
-    }
-  };
-
-  const getStatusLabel = (status: DomainStatus['status']) => {
-    switch (status) {
-      case 'verified':
-        return 'Verificado';
-      case 'partial':
-        return 'Configuração Parcial';
-      case 'pending':
-        return 'Pendente';
-      case 'failed':
-        return 'Falhado';
-      default:
-        return 'Desconhecido';
-    }
-  };
-
-  const handleDeleteDomain = async () => {
-    if (!domainToDelete) return;
-
+  const handleRefresh = async (domainId: number) => {
+    setRefreshingId(domainId)
     try {
-      await onRemoveDomain(domainToDelete.id);
-      setDeleteDialogOpen(false);
-      setDomainToDelete(null);
-    } catch (error) {
-      console.error('Failed to delete domain:', error);
-    }
-  };
-
-  const handleRefreshDomain = async (domainId: number) => {
-    setRefreshingDomains(prev => new Set([...prev, domainId]));
-    try {
-      await onRefreshDomain(domainId);
-      toast.success('Status do domínio atualizado');
-    } catch (error) {
-      console.error('Failed to refresh domain:', error);
-      toast.error('Erro ao atualizar domínio');
+      await onRefreshDomain(domainId)
+      toast.success('Status atualizado')
+    } catch {
+      toast.error('Não foi possível verificar agora')
     } finally {
-      setRefreshingDomains(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(domainId);
-        return newSet;
-      });
+      setRefreshingId(null)
     }
-  };
+  }
 
-  const handleViewDomain = (domainId: number) => {
-    setSelectedDomainId(domainId);
-    setDetailsDialogOpen(true);
-  };
-
-  const handleEditDomain = (domainId: number) => {
-    setDetailsDialogOpen(false);
-    onEditDomain?.(domainId);
-  };
-
-  const copyDomainName = async (domainName: string) => {
-    try {
-      await navigator.clipboard.writeText(domainName);
-      toast.success('Nome do domínio copiado para área de transferência');
-    } catch (error) {
-      toast.error('Falha ao copiar nome do domínio');
-    }
-  };
-
-  const renderDNSStatus = (domain: DomainStatus) => {
-    const checks = [
-      { name: 'MAIL FROM', status: domain.dns_status.mail_from },
-      { name: 'DKIM', status: domain.dns_status.dkim },
-      { name: 'SPF', status: domain.dns_status.spf },
-      { name: 'DMARC', status: domain.dns_status.dmarc }
-    ];
-
-    return (
-      <div className="flex flex-wrap gap-2">
-        {checks.map(({ name, status }) => (
-          <Badge
-            key={name}
-            variant={status.valid ? "default" : "destructive"}
-            className="text-xs"
-          >
-            {name} {status.valid ? '✓' : '✗'}
-          </Badge>
-        ))}
-      </div>
-    );
-  };
-
-  const renderEmptyState = () => (
-    <Card className="p-8 text-center">
-      <div className="max-w-md mx-auto">
-        <div className="mb-4">
-          <Globe className="w-12 h-12 text-muted-foreground mx-auto" />
-        </div>
-        <h3 className="text-lg font-semibold text-foreground mb-2">
-          Nenhum domínio adicionado
-        </h3>
-        <p className="text-muted-foreground mb-6">
-          Adicione seu primeiro domínio para começar a enviar emails autenticados através da VeloMail.
-        </p>
-        <Button onClick={onAddDomain}>
-          <Plus className="w-4 h-4 mr-2" />
-          Adicionar Domínio
-        </Button>
-      </div>
-    </Card>
-  );
-
-  const renderDomainCard = (domain: DomainStatus) => (
-    <Card key={domain.id} className="p-4 sm:p-6">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex-1">
-          <div className="mb-2 flex items-center gap-2 sm:gap-3">
-            <h3 className="break-all text-lg font-semibold">{domain.name}</h3>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => copyDomainName(domain.name)}
-              className="p-1"
-            >
-              <Copy className="w-3 h-3" />
-            </Button>
-          </div>
-          
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge className={getStatusColor(domain.status)}>
-              {getStatusIcon(domain.status)}
-              <span className="ml-1">{getStatusLabel(domain.status)}</span>
-            </Badge>
-            {domain.is_verified && (
-              <Badge variant="outline" className="text-[hsl(var(--success))]">
-                <CheckCircle2 className="w-3 h-3 mr-1" />
-                Verificado
-              </Badge>
-            )}
-          </div>
-
-          <div className="text-sm text-muted-foreground space-y-1">
-            <div>Criado: {format(new Date(domain.created_at), 'dd/MM/yyyy')}</div>
-            {domain.verified_at && (
-              <div>Verificado: {format(new Date(domain.verified_at), 'dd/MM/yyyy HH:mm')}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleRefreshDomain(domain.id)}
-            disabled={refreshingDomains.has(domain.id)}
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshingDomains.has(domain.id) ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleViewDomain(domain.id)}
-            title="Visualizar detalhes do domínio"
-          >
-            <Eye className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleEditDomain(domain.id)}
-            title="Editar configurações do domínio"
-          >
-            <Settings className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setDomainToDelete(domain);
-              setDeleteDialogOpen(true);
-            }}
-            className="text-destructive hover:text-destructive"
-            title="Remover domínio"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="mb-4">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Progresso da Configuração</span>
-          <span className="text-sm text-muted-foreground">{domain.completion_percentage}%</span>
-        </div>
-        <Progress value={domain.completion_percentage} className="h-2" />
-      </div>
-
-      {/* DNS Status */}
-      <div className="mb-4">
-        <div className="text-sm font-medium mb-2">Configuração DNS</div>
-        {renderDNSStatus(domain)}
-      </div>
-
-      {/* Status specific messages */}
-      {domain.status === 'failed' && (
-        <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-3">
-          <div className="flex items-center">
-            <AlertCircle className="w-4 h-4 text-destructive mr-2" />
-            <span className="text-sm text-destructive">
-              Verificação do domínio falhou. Clique no botão de configurações para ver detalhes e tentar novamente.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {domain.status === 'partial' && (
-        <div className="rounded-lg border border-[hsl(var(--warning)/.3)] bg-[hsl(var(--warning)/.12)] p-3">
-          <div className="flex items-center">
-            <AlertCircle className="w-4 h-4 text-[hsl(var(--warning))] mr-2" />
-            <span className="text-sm text-[hsl(var(--warning))]">
-              Alguns registros DNS estão faltando ou incorretos. Complete a configuração para começar a enviar emails.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {domain.status === 'pending' && (
-        <div className="rounded-lg border border-primary/25 bg-primary/10 p-3">
-          <div className="flex items-center">
-            <Clock className="w-4 h-4 text-primary mr-2" />
-            <span className="text-sm text-primary">
-              Registros DNS estão sendo verificados. Isso pode levar alguns minutos.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {domain.status === 'verified' && (
-        <div className="rounded-lg border border-[hsl(var(--success)/.3)] bg-[hsl(var(--success)/.12)] p-3">
-          <div className="flex items-center">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success))] mr-2" />
-            <span className="text-sm text-[hsl(var(--success))]">
-              Domínio está totalmente configurado e pronto para enviar emails!
-            </span>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
+  const handleDelete = async () => {
+    if (!domainToDelete) return
+    await onRemoveDomain(domainToDelete.id)
+    setDomainToDelete(null)
+  }
 
   if (loading && domains.length === 0) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 animate-spin mr-2" />
-        <span>Carregando domínios...</span>
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
-    );
+    )
   }
 
-  const renderErrorState = () => {
-    const isAuthError = error?.includes('token') || error?.includes('Access') || error?.includes('login');
-    
+  if (error && domains.length === 0) {
     return (
-      <Card className="p-6 text-center">
-        <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-3" />
-        <h3 className="font-semibold text-foreground mb-2">
-          {isAuthError ? 'Autenticação Necessária' : 'Erro ao Carregar Domínios'}
-        </h3>
-        <p className="text-muted-foreground mb-4">
-          {isAuthError ? 'Faça login para visualizar e gerenciar seus domínios.' : error}
-        </p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <Button onClick={onReload} variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Tentar Novamente
-          </Button>
-          {isAuthError && (
-            <Button onClick={onAddDomain}>
-              <Plus className="w-4 h-4 mr-2" />
-              Adicionar Domínio
-            </Button>
-          )}
-        </div>
+      <Card className="flex flex-col items-center gap-3 py-12 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={onReload}>Tentar de novo</Button>
       </Card>
-    );
-  };
+    )
+  }
+
+  if (domains.length === 0) {
+    return (
+      <Card className="flex flex-col items-center gap-3 py-16 text-center">
+        <Globe className="h-10 w-10 text-muted-foreground" />
+        <p className="text-muted-foreground">Nenhum domínio ainda.</p>
+        {onAddDomain && <Button onClick={onAddDomain}>Adicionar domínio</Button>}
+      </Card>
+    )
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Content Area */}
-      {error && domains.length === 0 ? (
-        renderErrorState()
-      ) : (
-        <>
-          {/* Domain List */}
-          {domains.length === 0 ? (
-            renderEmptyState()
-          ) : (
-            <div className="grid gap-4">
-              {domains.map(renderDomainCard)}
-            </div>
-          )}
-        </>
-      )}
+    <>
+      <Card className="overflow-hidden">
+        <ul className="divide-y">
+          {domains.map((domain) => {
+            const status = statusInfo(domain.status)
+            const isRefreshing = refreshingId === domain.id
 
-      {/* Delete Confirmation Dialog */}
+            return (
+              <li key={domain.id} className="flex items-center gap-4 px-5 py-4">
+                <Globe className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{domain.name}</div>
+                  <span className={cn('vm-status mt-1', status.tone)}>{status.label}</span>
+                </div>
+
+                {domain.status !== 'verified' && (
+                  <Button size="sm" onClick={() => onEditDomain?.(domain.id)}>
+                    Configurar DNS
+                  </Button>
+                )}
+
+                <RowActions>
+                  <DropdownMenuItem onSelect={() => handleRefresh(domain.id)} disabled={isRefreshing}>
+                    <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+                    Verificar agora
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onEditDomain?.(domain.id)}>
+                    <Settings2 className="h-4 w-4" />
+                    Ver registros DNS
+                  </DropdownMenuItem>
+                  <DropdownMenuItem destructive onSelect={() => setDomainToDelete(domain)}>
+                    <Trash2 className="h-4 w-4" />
+                    Excluir
+                  </DropdownMenuItem>
+                </RowActions>
+              </li>
+            )
+          })}
+        </ul>
+      </Card>
+
       <ConfirmDialog
-        isOpen={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-        title="Remover Domínio"
-        description={
-          domainToDelete
-            ? `Tem certeza que deseja remover o domínio ${domainToDelete.name}? Esta ação não pode ser desfeita.`
-            : ''
-        }
-        onConfirm={handleDeleteDomain}
+        isOpen={Boolean(domainToDelete)}
+        onClose={() => setDomainToDelete(null)}
+        onConfirm={handleDelete}
+        title="Excluir domínio"
+        description={domainToDelete ? `Excluir ${domainToDelete.name}? Emails com esse remetente deixam de ser enviados.` : ''}
         variant="danger"
       />
-
-      {/* Domain Details Modal */}
-      {selectedDomainId && (
-        <DomainDetails
-          domainId={selectedDomainId}
-          isOpen={detailsDialogOpen}
-          onClose={() => {
-            setDetailsDialogOpen(false);
-            setSelectedDomainId(null);
-          }}
-          onEdit={handleEditDomain}
-        />
-      )}
-    </div>
-  );
-};
+    </>
+  )
+}

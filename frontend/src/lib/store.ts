@@ -124,17 +124,31 @@ interface SidebarState {
   toggle: () => void
   close: () => void
   open: () => void
+  collapsed: boolean
+  toggleCollapsed: () => void
 }
 
-export const useSidebarStore = create<SidebarState>()((set) => ({
-  // Fechada por padrao: no mobile a sidebar e um drawer sobreposto, e abrir
-  // por default cobria o conteudo com overlay ja no primeiro carregamento.
-  // No desktop o `md:translate-x-0` mantem a sidebar sempre visivel.
-  isOpen: false,
-  toggle: () => set((state) => ({ isOpen: !state.isOpen })),
-  close: () => set({ isOpen: false }),
-  open: () => set({ isOpen: true }),
-}))
+export const useSidebarStore = create<SidebarState>()(
+  persist(
+    (set) => ({
+      // Fechada por padrao: no mobile a sidebar e um drawer sobreposto, e abrir
+      // por default cobria o conteudo com overlay ja no primeiro carregamento.
+      // No desktop o `lg:translate-x-0` mantem a sidebar sempre visivel.
+      isOpen: false,
+      toggle: () => set((state) => ({ isOpen: !state.isOpen })),
+      close: () => set({ isOpen: false }),
+      open: () => set({ isOpen: true }),
+      // Desktop: menu completo ou so icones, escolhido pelo usuario.
+      collapsed: false,
+      toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
+    }),
+    {
+      name: 'sidebar-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ collapsed: state.collapsed }),
+    }
+  )
+)
 
 interface ThemeState {
   theme: 'light' | 'dark' | 'system'
