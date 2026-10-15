@@ -127,7 +127,7 @@ export function Header({ className }: HeaderProps) {
                   className="flex items-center px-3 py-2 text-sm hover:bg-accent rounded-sm"
                   onClick={() => setShowUserMenu(false)}
                 >
-                  API Keys
+                  Chaves de API
                 </Link>
                 <button
                   onClick={() => {

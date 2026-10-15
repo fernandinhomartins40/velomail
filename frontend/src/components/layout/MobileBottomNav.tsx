@@ -1,60 +1,24 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import {
-  BarChart3,
-  Bot,
-  BookOpen,
-  FileText,
-  Globe,
-  Home,
-  Key,
-  LogOut,
-  Mail,
-  Plus,
-  Send,
-  Settings,
-  Webhook,
-  type LucideIcon,
-} from 'lucide-react'
+import { BookOpen, LogOut, Plus, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/store'
+import { appNavigation, isRouteActive, type NavItem } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
-interface NavItem {
-  name: string
-  href: string
-  icon: LucideIcon
-}
-
 /**
- * Hierarquia derivada do produto: o valor central da VeloMail e disparar um
- * envio, entao "Enviar" ocupa a posicao de destaque. Os demais itens da
- * sidebar continuam acessiveis pelo "Mais", sem duplicar a navegacao.
+ * O valor central da VeloMail e disparar um envio, entao "Enviar" ocupa a
+ * posicao de destaque. Os demais itens do menu ficam no "Mais".
  */
-const primaryItems: NavItem[] = [
-  { name: 'Inicio', href: '/app', icon: Home },
-  { name: 'Emails', href: '/app/emails', icon: Mail },
-]
-
-const secondaryItems: NavItem[] = [{ name: 'Analytics', href: '/app/analytics', icon: BarChart3 }]
+const tabHrefs = ['/app', '/app/emails', '/app/domains']
+const tabItems = appNavigation.filter((item) => tabHrefs.includes(item.href))
+const primaryItems: NavItem[] = tabItems.slice(0, 2)
+const secondaryItems: NavItem[] = tabItems.slice(2)
 
 const moreItems: NavItem[] = [
-  { name: 'Templates', href: '/app/templates', icon: FileText },
-  { name: 'Dominios', href: '/app/domains', icon: Globe },
-  { name: 'Webhooks', href: '/app/webhooks', icon: Webhook },
-  { name: 'API Keys', href: '/app/api-keys', icon: Key },
-  { name: 'Integracao IA', href: '/app/ai', icon: Bot },
-  { name: 'Developers', href: '/app/developers', icon: BookOpen },
-  { name: 'Configuracoes', href: '/app/settings', icon: Settings },
+  ...appNavigation.filter((item) => !tabHrefs.includes(item.href)),
+  { name: 'Documentação', href: '/app/developers', icon: BookOpen },
 ]
-
-const isRouteActive = (pathname: string, href: string) => {
-  if (href === '/app') {
-    return pathname === '/app'
-  }
-
-  return pathname === href || pathname.startsWith(`${href}/`)
-}
 
 export function MobileBottomNav() {
   const location = useLocation()
@@ -91,7 +55,7 @@ export function MobileBottomNav() {
     <>
       {/* Bottom sheet do "Mais" */}
       {isMoreOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Mais opcoes">
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Mais opções">
           <button
             type="button"
             className="absolute inset-0 h-full w-full bg-background/80 backdrop-blur-sm"
@@ -102,9 +66,9 @@ export function MobileBottomNav() {
           <div className="vm-sheet absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t bg-card p-4 shadow-md">
             <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted-foreground/25" aria-hidden="true" />
 
-            <h2 className="mb-3 px-1 text-sm font-semibold text-foreground">Mais opcoes</h2>
+            <h2 className="mb-3 px-1 text-sm font-semibold text-foreground">Mais opções</h2>
 
-            <nav aria-label="Navegacao secundaria">
+            <nav aria-label="Navegação secundária">
               <ul className="grid grid-cols-2 gap-2">
                 {moreItems.map((item) => {
                   const Icon = item.icon
@@ -149,7 +113,7 @@ export function MobileBottomNav() {
 
       <nav
         className="vm-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur lg:hidden"
-        aria-label="Navegacao principal mobile"
+        aria-label="Navegação principal"
       >
         <div className="flex items-stretch justify-around gap-1 px-2 pt-1">
           {primaryItems.map(renderTab)}

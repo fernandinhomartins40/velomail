@@ -1,38 +1,24 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { analyticsApi, api } from '@/lib/api'
-import { getEmailStatusLabel } from '@/lib/emailEngagement'
-import { cn, formatNumber } from '@/lib/utils'
-import { useSmartPolling } from '@/hooks/useSmartPolling'
+import { useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowUpRight,
-  CheckCircle,
-  FileText,
-  Globe,
-  Loader2,
-  Mail,
-  MousePointer,
-  RefreshCw,
-  Sparkles,
-  TrendingUp,
-} from 'lucide-react'
+import { ArrowRight, Check, Loader2, Send, Sparkles } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { PageHeader } from '@/components/ui/page'
+import { AiSetupDialog } from '@/components/ai/AiSetupDialog'
+import { analyticsApi, api } from '@/lib/api'
+import { getEmailStatusLabel } from '@/lib/emailEngagement'
+import { useAuthStore } from '@/lib/store'
+import { cn, formatNumber } from '@/lib/utils'
+import { useSmartPolling } from '@/hooks/useSmartPolling'
+import { useAccountUsage, type AccountUsage } from '@/hooks/useAccountUsage'
 
 interface DashboardStats {
   totalEmails: number
   deliveryRate: number
   openRate: number
   bounceRate: number
-  emailsChange: number
-  deliveryChange: number
-  openChange: number
-  bounceChange: number
 }
 
 interface RecentActivity {
@@ -41,101 +27,87 @@ interface RecentActivity {
   timestamp: string
 }
 
-const metricStyles = {
-  volume: {
-    surface: 'border-border bg-card',
-    icon: 'bg-primary/10 text-primary',
-    bar: 'from-primary to-primary',
-  },
-  delivery: {
-    surface: 'border-border bg-card',
-    icon: 'bg-primary/10 text-primary',
-    bar: 'from-primary to-primary',
-  },
-  open: {
-    surface: 'border-border bg-card',
-    icon: 'bg-primary/10 text-primary',
-    bar: 'from-primary to-primary',
-  },
-  bounce: {
-    surface: 'border-border bg-card',
-    icon: 'bg-destructive/10 text-destructive',
-    bar: 'from-destructive to-destructive',
-  },
-} as const
+const buildSteps = (onboarding: AccountUsage['onboarding']) => [
+  { label: 'Adicione seu domínio', done: onboarding.domain_added, href: '/app/domains?mode=setup' },
+  { label: 'Configure o DNS', done: onboarding.domain_verified, href: '/app/domains?mode=setup' },
+  { label: 'Crie sua chave de API', done: onboarding.api_key_created, href: '/app/api-keys' },
+  { label: 'Envie o primeiro email', done: onboarding.first_email_sent, href: '/app/emails/send' },
+]
 
-const clampPercentage = (value: number) => Math.max(0, Math.min(100, value))
+function GettingStarted({ onboarding, onOpenAi }: { onboarding: AccountUsage['onboarding']; onOpenAi: () => void }) {
+  const steps = buildSteps(onboarding)
+  const doneCount = steps.filter((step) => step.done).length
+  const nextIndex = steps.findIndex((step) => !step.done)
 
-const renderPercentageBar = (value: number, gradient: string) => (
-  <div className="h-2 overflow-hidden rounded-full bg-muted">
-    <div
-      className={cn('h-full rounded-full bg-gradient-to-r transition-all', gradient)}
-      style={{ width: `${clampPercentage(value)}%` }}
-    />
-  </div>
-)
-
-const formatChange = (value: number, invertMeaning = false) => {
-  const safeValue = Number.isFinite(value) ? value : 0
-  const positive = safeValue >= 0
-  const improved = invertMeaning ? !positive : positive
-  const label = safeValue === 0 ? 'Estável' : `${positive ? '+' : ''}${safeValue.toFixed(1)}%`
-
-  return {
-    label,
-    className: safeValue === 0
-      ? 'vm-status vm-status-neutral'
-      : improved
-        ? 'vm-status vm-status-success'
-        : 'vm-status vm-status-danger',
-  }
-}
-
-const formatPollingLabel = (interval?: number) => {
-  if (!interval) {
-    return 'Atualização dinâmica'
+  if (nextIndex === -1) {
+    return null
   }
 
-  if (interval < 60000) {
-    return `Atualiza a cada ${Math.round(interval / 1000)}s`
-  }
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="font-semibold">Primeiros passos</h2>
+          <span className="text-sm text-muted-foreground">{doneCount} de {steps.length}</span>
+        </div>
 
-  return `Atualiza a cada ${Math.round(interval / 60000)}min`
+        <ol className="space-y-1">
+          {steps.map((step, index) => (
+            <li key={step.label}>
+              <Link
+                to={step.href}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-accent',
+                  index === nextIndex && 'bg-primary/5 font-medium'
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs',
+                    step.done ? 'border-primary bg-primary text-primary-foreground' : 'text-muted-foreground'
+                  )}
+                >
+                  {step.done ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                </span>
+                <span className={cn('flex-1', step.done && 'text-muted-foreground line-through')}>{step.label}</span>
+                {index === nextIndex && <ArrowRight className="h-4 w-4 text-primary" />}
+              </Link>
+            </li>
+          ))}
+        </ol>
+
+        <button
+          type="button"
+          onClick={onOpenAi}
+          className="flex items-center gap-2 text-sm text-primary hover:underline"
+        >
+          <Sparkles className="h-4 w-4" />
+          Prefere que a IA faça isso por você?
+        </button>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const { user } = useAuthStore()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [aiOpen, setAiOpen] = useState(searchParams.get('ia') === '1')
+  const { data: account } = useAccountUsage()
 
-  const {
-    data: stats,
-    isLoading: loading,
-    isError,
-    currentInterval,
-    refetch: refetchStats,
-  } = useSmartPolling({
+  const { data: stats, isLoading } = useSmartPolling({
     queryKey: ['dashboard-stats'],
-    queryFn: async (): Promise<DashboardStats> => {
-      const overviewResponse = await analyticsApi.getOverview()
-      return overviewResponse.data.stats as DashboardStats
-    },
+    queryFn: async (): Promise<DashboardStats> => (await analyticsApi.getOverview()).data.stats,
     baseInterval: 30000,
     maxInterval: 300000,
-    onError: (error) => {
-      console.error('Error fetching dashboard stats:', error)
-    }
   })
 
-  const {
-    data: activityData,
-    isLoading: activityLoading,
-    refetch: refetchActivity,
-  } = useSmartPolling({
+  const { data: activity } = useSmartPolling({
     queryKey: ['recent-activity'],
     queryFn: async (): Promise<RecentActivity[]> => {
       try {
-        const recentResponse = await api.get('/analytics/recent-activity')
-        return recentResponse.data.activities || []
+        return (await api.get('/analytics/recent-activity')).data.activities || []
       } catch {
         return []
       }
@@ -144,365 +116,93 @@ export function Dashboard() {
     maxInterval: 600000,
   })
 
-  useEffect(() => {
-    if (activityData) {
-      setRecentActivity(activityData as RecentActivity[])
+  const handleAiOpenChange = (open: boolean) => {
+    setAiOpen(open)
+    if (!open && searchParams.has('ia')) {
+      searchParams.delete('ia')
+      setSearchParams(searchParams, { replace: true })
     }
-  }, [activityData])
-
-  const handleRefresh = async () => {
-    await Promise.all([refetchStats(), refetchActivity()])
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex min-h-[400px] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      </div>
-    )
-  }
+  const safeStats: DashboardStats = stats || { totalEmails: 0, deliveryRate: 0, openRate: 0, bounceRate: 0 }
+  const recentActivity = (activity as RecentActivity[] | undefined) || []
+  const firstName = user?.name?.split(' ')[0]
 
-  const safeStats: DashboardStats = stats || {
-    totalEmails: 0,
-    deliveryRate: 0,
-    openRate: 0,
-    bounceRate: 0,
-    emailsChange: 0,
-    deliveryChange: 0,
-    openChange: 0,
-    bounceChange: 0,
-  }
-
-  const deliveryBadge = formatChange(safeStats.deliveryChange)
-  const openBadge = formatChange(safeStats.openChange)
-  const bounceBadge = formatChange(safeStats.bounceChange, true)
-  const emailBadge = formatChange(safeStats.emailsChange)
-  const clickEstimate = safeStats.deliveryRate > 0 ? Math.max(0, Math.min(100, safeStats.openRate * 0.45)) : 0
-
-  const cards = [
-    {
-      key: 'volume',
-      title: 'Volume total',
-      value: formatNumber(safeStats.totalEmails),
-      subtitle: 'emails processados no período',
-      badge: emailBadge,
-      icon: Mail,
-      progress: 100,
-    },
-    {
-      key: 'delivery',
-      title: 'Aceite SMTP',
-      value: `${safeStats.deliveryRate.toFixed(1)}%`,
-      subtitle: 'aceitação técnica no servidor remoto',
-      badge: deliveryBadge,
-      icon: CheckCircle,
-      progress: safeStats.deliveryRate,
-    },
-    {
-      key: 'open',
-      title: 'Abertura',
-      value: `${safeStats.openRate.toFixed(1)}%`,
-      subtitle: 'leitura rastreada dos emails',
-      badge: openBadge,
-      icon: TrendingUp,
-      progress: safeStats.openRate,
-    },
-    {
-      key: 'bounce',
-      title: 'Bounce',
-      value: `${safeStats.bounceRate.toFixed(1)}%`,
-      subtitle: 'falhas e rejeições no envio',
-      badge: bounceBadge,
-      icon: AlertTriangle,
-      progress: safeStats.bounceRate,
-    },
-  ] as const
-
-  const actionCards = [
-    {
-      title: 'Enviar email',
-      description: 'Disparar um novo envio transacional.',
-      icon: Mail,
-      onClick: () => navigate('/app/emails/send'),
-      variant: 'default' as const,
-    },
-    {
-      title: 'Criar template',
-      description: 'Preparar conteúdo reutilizável e padronizado.',
-      icon: FileText,
-      onClick: () => navigate('/app/templates'),
-      variant: 'outline' as const,
-    },
-    {
-      title: 'Adicionar domínio',
-      description: 'Autenticar SPF, DKIM e DMARC para envio.',
-      icon: Globe,
-      onClick: () => navigate('/app/domains?mode=setup'),
-      variant: 'outline' as const,
-    },
+  const metrics = [
+    { label: 'Enviados', value: formatNumber(safeStats.totalEmails) },
+    { label: 'Entregues', value: `${safeStats.deliveryRate.toFixed(1)}%` },
+    { label: 'Abertos', value: `${safeStats.openRate.toFixed(1)}%` },
+    { label: 'Bounce', value: `${safeStats.bounceRate.toFixed(1)}%`, alert: safeStats.bounceRate > 5 },
   ]
 
   return (
     <div className="space-y-6">
-      <section className="vm-page-hero">
-        <div className="relative grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="vm-status vm-status-info">Resumo operacional</span>
-              <span className="vm-status vm-status-neutral">{formatPollingLabel(currentInterval)}</span>
-              {isError && <span className="vm-status vm-status-danger">Com falha recente</span>}
-            </div>
+      <PageHeader
+        title={firstName ? `Olá, ${firstName}` : 'Início'}
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setAiOpen(true)}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Configurar com IA
+            </Button>
+            <Button onClick={() => navigate('/app/emails/send')}>
+              <Send className="mr-2 h-4 w-4" />
+              Enviar email
+            </Button>
+          </>
+        }
+      />
 
-            <div className="space-y-2">
-              <h1 className="vm-page-title">Dashboard</h1>
-              <p className="vm-page-description">
-                Leitura rápida do que importa agora: volume, aceite SMTP, abertura, bounce e o próximo foco operacional.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Volume</div>
-                <div className="vm-hero-value">{formatNumber(safeStats.totalEmails)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">base do período atual</div>
-              </div>
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Saúde</div>
-                <div className="vm-hero-value">{safeStats.deliveryRate.toFixed(1)}%</div>
-                <div className="mt-1 text-sm text-muted-foreground">aceite SMTP consolidado</div>
-              </div>
-              <div className="vm-hero-card">
-                <div className="vm-hero-label">Próximo passo</div>
-                <div className="mt-2 text-base font-semibold text-foreground">
-                  {safeStats.deliveryRate >= 90 && safeStats.openRate < 20
-                    ? 'melhorar abertura'
-                    : safeStats.bounceRate > 5
-                      ? 'reduzir bounce'
-                      : 'escalar com segurança'}
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">ação sugerida pelo funil</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col justify-between gap-4 rounded-xl border bg-card p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="vm-hero-label">Pulso do dia</div>
-                <div className="mt-2 text-xl font-semibold text-foreground">Indicadores vivos</div>
-              </div>
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Aceite SMTP</span>
-                  <span className="font-medium text-foreground">{safeStats.deliveryRate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(safeStats.deliveryRate, metricStyles.delivery.bar)}
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Abertura</span>
-                  <span className="font-medium text-foreground">{safeStats.openRate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(safeStats.openRate, metricStyles.open.bar)}
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Intenção de clique</span>
-                  <span className="font-medium text-foreground">{clickEstimate.toFixed(1)}%</span>
-                </div>
-                {renderPercentageBar(clickEstimate, 'from-primary to-primary')}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => handleRefresh()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Atualizar
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/app/analytics')}>
-                Ver analytics
-              </Button>
-            </div>
-          </div>
+      {account?.plan.sending_blocked && (
+        <div className="vm-status vm-status-danger w-full justify-center rounded-lg py-2 text-sm">
+          O envio desta conta está pausado. Fale com o suporte.
         </div>
-      </section>
+      )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => {
-          const style = metricStyles[card.key]
-          const Icon = card.icon
+      {account && <GettingStarted onboarding={account.onboarding} onOpenAi={() => setAiOpen(true)} />}
 
-          return (
-            <Card key={card.key} className={cn('overflow-hidden shadow-sm', style.surface)}>
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className={cn('rounded-2xl p-3', style.icon)}>
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <Badge className={cn('rounded-full border px-3 py-1', card.badge.className)}>
-                    {card.badge.label}
-                  </Badge>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-muted-foreground">{card.title}</div>
-                  <div className="text-3xl font-semibold tracking-tight text-foreground">{card.value}</div>
-                  <div className="text-sm text-muted-foreground">{card.subtitle}</div>
-                </div>
-
-                <div className="space-y-2">
-                  {renderPercentageBar(card.progress, style.bar)}
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Leitura visual</span>
-                    <span>{clampPercentage(card.progress).toFixed(0)}%</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="vm-metric-card">
+            <div className="text-sm text-muted-foreground">{metric.label}</div>
+            <div className={cn('mt-1 text-2xl font-semibold', metric.alert && 'text-destructive')}>
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : metric.value}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="overflow-hidden border-border shadow-sm">
-          <CardHeader className="border-b bg-muted/35">
-            <CardTitle className="text-xl">Atividade recente</CardTitle>
-            <CardDescription>Os eventos mais novos da conta, com leitura direta do status.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 p-6">
-            {recentActivity.length > 0 ? (
-              recentActivity.slice(0, 6).map((item, index) => (
-                <div
-                  key={`${item.email}-${item.timestamp}-${index}`}
-                  className="rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2.5 w-2.5 rounded-full bg-primary" />
-                        <span className="font-medium text-foreground">{getEmailStatusLabel(item.status)}</span>
-                      </div>
-                      <div className="text-sm text-muted-foreground">{item.email}</div>
-                    </div>
-                    <Badge variant="outline" className="rounded-full border-border bg-muted/50">
+      <Card>
+        <CardContent className="p-5">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <h2 className="font-semibold">Atividade recente</h2>
+            <div className="flex gap-3 text-sm">
+              <Link to="/app/analytics" className="text-muted-foreground hover:text-foreground">Métricas</Link>
+              <Link to="/app/emails" className="text-primary hover:underline">Ver todos</Link>
+            </div>
+          </div>
+
+          {recentActivity.length > 0 ? (
+            <ul className="divide-y">
+              {recentActivity.slice(0, 6).map((item, index) => (
+                <li key={`${item.email}-${item.timestamp}-${index}`} className="flex items-center justify-between gap-4 py-2.5 text-sm">
+                  <span className="min-w-0 truncate">{item.email}</span>
+                  <span className="flex shrink-0 items-center gap-3 text-muted-foreground">
+                    <span>{getEmailStatusLabel(item.status)}</span>
+                    <span className="hidden sm:inline">
                       {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}
-                    </Badge>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-border py-10 text-center text-muted-foreground">
-                <Activity className="mx-auto mb-3 h-8 w-8" />
-                Nenhuma atividade recente encontrada.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">Nenhum envio ainda.</p>
+          )}
+        </CardContent>
+      </Card>
 
-        <div className="grid gap-6">
-          <Card className="overflow-hidden border-border shadow-sm">
-            <CardHeader className="border-b bg-muted/35">
-              <CardTitle className="text-xl">Leitura operacional</CardTitle>
-              <CardDescription>Resumo rápido do que merece atenção agora.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 p-6">
-              <div className="rounded-xl border border-border bg-muted/45 p-4">
-                <div className="mb-2 text-sm font-medium text-foreground">Aceite SMTP</div>
-                {renderPercentageBar(safeStats.deliveryRate, metricStyles.delivery.bar)}
-                <div className="mt-2 text-xs text-muted-foreground">Entrega técnica aceita pelos servidores remotos.</div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-muted/45 p-4">
-                <div className="mb-2 text-sm font-medium text-foreground">Abertura</div>
-                {renderPercentageBar(safeStats.openRate, metricStyles.open.bar)}
-                <div className="mt-2 text-xs text-muted-foreground">Rastreada por HTML/pixel ou clique em link.</div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-muted/45 p-4">
-                <div className="mb-2 text-sm font-medium text-foreground">Bounce</div>
-                {renderPercentageBar(safeStats.bounceRate, metricStyles.bounce.bar)}
-                <div className="mt-2 text-xs text-muted-foreground">Falhas permanentes ou temporárias do envio.</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="overflow-hidden border-border shadow-sm">
-            <CardHeader className="border-b bg-muted/35">
-              <CardTitle className="text-xl">Ações rápidas</CardTitle>
-              <CardDescription>Caminhos mais usados para agir sobre os números.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 p-6">
-              {actionCards.map((action) => {
-                const Icon = action.icon
-                return (
-                  <Button
-                    key={action.title}
-                    variant={action.variant}
-                    className="h-auto w-full justify-between rounded-2xl px-4 py-4"
-                    onClick={action.onClick}
-                  >
-                    <div className="flex items-start gap-3 text-left">
-                      <Icon className="mt-0.5 h-4 w-4" />
-                      <div>
-                        <div className="font-medium">{action.title}</div>
-                        <div className="text-xs opacity-80">{action.description}</div>
-                      </div>
-                    </div>
-                    <ArrowUpRight className="h-4 w-4" />
-                  </Button>
-                )
-              })}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="flex h-full items-start justify-between gap-4 p-5">
-            <div>
-              <div className="text-sm font-medium text-muted-foreground">Aceite x abertura</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{Math.max(0, safeStats.deliveryRate - safeStats.openRate).toFixed(1)} pp</div>
-              <div className="mt-1 text-xs text-muted-foreground">Diferença entre chegada técnica e engajamento.</div>
-            </div>
-            <TrendingUp className="h-5 w-5 text-primary" />
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="flex h-full items-start justify-between gap-4 p-5">
-            <div>
-              <div className="text-sm font-medium text-muted-foreground">Indicador de clique</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{clickEstimate.toFixed(1)}%</div>
-              <div className="mt-1 text-xs text-muted-foreground">Estimativa visual para intensidade de ação.</div>
-            </div>
-            <MousePointer className="h-5 w-5 text-primary" />
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="flex h-full items-start justify-between gap-4 p-5">
-            <div>
-              <div className="text-sm font-medium text-muted-foreground">Próximo foco</div>
-              <div className="mt-1 text-lg font-semibold text-foreground">
-                {safeStats.deliveryRate >= 90 && safeStats.openRate < 20
-                  ? 'trabalhar assunto e caixa de entrada'
-                  : safeStats.bounceRate > 5
-                    ? 'limpar base e autenticação'
-                    : 'aumentar volume com controle'}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">Orientação automática a partir dos indicadores.</div>
-            </div>
-            <ArrowUpRight className="h-5 w-5 text-primary" />
-          </CardContent>
-        </Card>
-      </div>
+      <AiSetupDialog open={aiOpen} onOpenChange={handleAiOpenChange} />
     </div>
   )
 }

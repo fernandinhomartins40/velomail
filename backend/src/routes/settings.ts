@@ -5,6 +5,9 @@ import { validateRequest } from '../middleware/validation';
 import { asyncHandler, createError } from '../middleware/errorHandler';
 import { settingsService } from '../services/SettingsService';
 import { workspaceService } from '../services/WorkspaceService';
+import { planLimitsService } from '../services/PlanLimitsService';
+import { getAccountUserId } from '../utils/accountContext';
+import db from '../config/database';
 
 const router = Router();
 
@@ -91,5 +94,40 @@ router.put('/',
     }
   })
 );
+
+/**
+ * Plano, consumo e progresso do onboarding da conta, em uma unica chamada.
+ * Alimenta o checklist da tela inicial e o resumo do plano na sidebar.
+ */
+router.get('/usage', requirePermission('settings:read'), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const accountUserId = getAccountUserId(req);
+
+  const [planState, usage, verifiedDomains, apiKeys, sentEmails] = await Promise.all([
+    planLimitsService.getAccountPlanState(accountUserId),
+    planLimitsService.getUsage(accountUserId),
+    db('domains').where('user_id', accountUserId).where('is_verified', true).count('* as count').first(),
+    db('api_keys').where('user_id', accountUserId).where('is_active', true).count('* as count').first(),
+    db('emails').where('user_id', accountUserId).count('* as count').first()
+  ]);
+
+  const toNumber = (row: any) => Number(row?.count || 0);
+
+  res.json({
+    plan: {
+      slug: planState.plan.slug,
+      name: planState.plan.name,
+      monthly_price_cents: planState.plan.monthly_price_cents,
+      limits: planState.limits,
+      sending_blocked: planState.sendingBlocked || planState.isSuspended
+    },
+    usage,
+    onboarding: {
+      domain_added: usage.domains > 0,
+      domain_verified: toNumber(verifiedDomains) > 0,
+      api_key_created: toNumber(apiKeys) > 0,
+      first_email_sent: toNumber(sentEmails) > 0
+    }
+  });
+}));
 
 export default router;

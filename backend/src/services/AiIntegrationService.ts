@@ -133,7 +133,7 @@ const RESOURCE_CATALOG: AiResourceDescriptor[] = [
   {
     uri: 'ultrazend://docs/mcp',
     title: 'Servidor MCP',
-    description: 'Como conectar Cursor e VS Code ao servidor MCP remoto da UltraZend.'
+    description: 'Como conectar Cursor e VS Code ao servidor MCP remoto da VeloMail.'
   },
   {
     uri: 'ultrazend://account/summary',
@@ -193,7 +193,7 @@ export class AiIntegrationService {
 
   static buildCursorConfig(origin: string, apiKeyValue?: string, scope?: WorkspaceScope): string {
     const headers: Record<string, string> = {
-      'x-api-key': apiKeyValue || 'YOUR_ULTRAZEND_AI_AGENT_KEY'
+      'x-api-key': apiKeyValue || 'YOUR_VELOMAIL_AI_AGENT_KEY'
     };
 
     if (scope?.organizationId) {
@@ -202,7 +202,7 @@ export class AiIntegrationService {
 
     return JSON.stringify({
       mcpServers: {
-        UltraZend: {
+        VeloMail: {
           url: `${this.getPublicOrigin(origin)}/api/ai/mcp`,
           headers
         }
@@ -212,7 +212,7 @@ export class AiIntegrationService {
 
   static buildVsCodeConfig(origin: string, apiKeyValue?: string, scope?: WorkspaceScope): string {
     const headers: Record<string, string> = {
-      'x-api-key': apiKeyValue || 'YOUR_ULTRAZEND_AI_AGENT_KEY'
+      'x-api-key': apiKeyValue || 'YOUR_VELOMAIL_AI_AGENT_KEY'
     };
 
     if (scope?.organizationId) {
@@ -221,7 +221,7 @@ export class AiIntegrationService {
 
     return JSON.stringify({
       servers: {
-        ultrazend: {
+        velomail: {
           type: 'http',
           url: `${this.getPublicOrigin(origin)}/api/ai/mcp`,
           headers
@@ -233,10 +233,10 @@ export class AiIntegrationService {
   static buildPromptTemplate(origin: string, scope?: WorkspaceScope): string {
     const publicOrigin = this.getPublicOrigin(origin);
     return [
-      'Voce e o agente tecnico responsavel por integrar a UltraZend em uma aplicacao real.',
+      'Voce e o agente tecnico responsavel por integrar a VeloMail em uma aplicacao real.',
       '',
       'Objetivo:',
-      '1. Conectar ao servidor MCP remoto da UltraZend.',
+      '1. Conectar ao servidor MCP remoto da VeloMail.',
       '2. Consultar a documentacao oficial e o estado real da conta antes de alterar codigo.',
       '3. Garantir dominio autenticado, webhook funcional e primeiro envio transacional de teste.',
       '4. Entregar codigo pronto para producao sem hardcode de segredos.',
@@ -248,12 +248,12 @@ export class AiIntegrationService {
       '- Ao configurar webhooks, implemente validacao HMAC SHA256 do header X-Webhook-Signature.',
       '- Antes do deploy, rode um envio de teste e reporte o que ainda bloqueia producao.',
       '',
-      'Contexto UltraZend:',
+      'Contexto VeloMail:',
       `- MCP endpoint: ${publicOrigin}/api/ai/mcp`,
       `- OpenAPI: ${publicOrigin}/api-docs`,
       '- Header de autenticacao do MCP: x-api-key',
-      '- Variavel recomendada para a chave: ULTRAZEND_AI_AGENT_KEY',
-      '- Para chamadas transacionais da aplicacao cliente em /api/emails/send, use uma API key padrao `re_...` em ULTRAZEND_API_KEY.',
+      '- Variavel recomendada para a chave: VELOMAIL_AI_AGENT_KEY',
+      '- Para chamadas transacionais da aplicacao cliente em /api/emails/send, use uma API key padrao `re_...` em VELOMAIL_API_KEY.',
       scope?.organizationId ? `- Workspace alvo: ${scope.organizationName || 'Workspace ativo'} (#${scope.organizationId}) via header x-organization-id` : null,
       '',
       'Resultado esperado:',
@@ -267,7 +267,7 @@ export class AiIntegrationService {
   static buildQuickstartMarkdown(origin: string, scope?: WorkspaceScope): string {
     const publicOrigin = this.getPublicOrigin(origin);
     return [
-      '# UltraZend AI Quickstart',
+      '# VeloMail AI Quickstart',
       '',
       '## 1. Gere uma AI Agent Key',
       `Use a pagina ${publicOrigin}/app/ai e copie a chave apenas uma vez.`,
@@ -278,7 +278,7 @@ export class AiIntegrationService {
       scope?.organizationId ? `Inclua tambem o header \`x-organization-id: ${scope.organizationId}\` para operar no workspace ${scope.organizationName || 'ativo'}.` : null,
       '',
       '## 3. Inicie o agente',
-      'Cole o prompt padrao da UltraZend e peça para o agente implementar a integracao completa.',
+      'Cole o prompt padrao da VeloMail e peça para o agente implementar a integracao completa.',
       '',
       '## 4. Fluxo esperado',
       '- Ler docs e recursos via MCP.',
@@ -288,7 +288,7 @@ export class AiIntegrationService {
       '',
       '## 5. Boas praticas',
       '- Nao exponha a chave do agente em codigo fonte.',
-      '- Nao reutilize a AI Agent Key como ULTRAZEND_API_KEY da aplicacao cliente.',
+      '- Nao reutilize a AI Agent Key como VELOMAIL_API_KEY da aplicacao cliente.',
       '- Gere uma chave separada para producao e outra para homologacao.',
       '- Revoke a chave do agente quando o setup terminar.'
     ].filter(Boolean).join('\n');
@@ -297,10 +297,10 @@ export class AiIntegrationService {
   static buildDomainGuideMarkdown(origin: string): string {
     const publicOrigin = this.getPublicOrigin(origin);
     return [
-      '# Autenticacao de Dominio UltraZend',
+      '# Autenticacao de Dominio VeloMail',
       '',
       'Antes de liberar trafego em producao, confirme:',
-      '- SPF publicado para o subdominio tecnico gerenciado pela UltraZend;',
+      '- SPF publicado para o subdominio tecnico gerenciado pela VeloMail;',
       '- DKIM publicado exatamente com a chave entregue no painel;',
       '- DMARC com politica explicita e mailbox de relatorio;',
       '- MAIL FROM tecnico apontando para o hostname gerenciado pela plataforma.',
@@ -316,7 +316,7 @@ export class AiIntegrationService {
 
   static buildWebhookGuideMarkdown(): string {
     return [
-      '# Webhooks UltraZend',
+      '# Webhooks VeloMail',
       '',
       'Implementacao minima:',
       '- endpoint HTTPS publico;',
@@ -340,14 +340,14 @@ export class AiIntegrationService {
   static buildMcpGuideMarkdown(origin: string): string {
     const publicOrigin = this.getPublicOrigin(origin);
     return [
-      '# Servidor MCP UltraZend',
+      '# Servidor MCP VeloMail',
       '',
       'Endpoint remoto:',
       `${publicOrigin}/api/ai/mcp`,
       '',
       'Autenticacao:',
       '- Header `x-api-key` com uma AI Agent Key ativa.',
-      '- Essa chave e exclusiva do MCP e nao substitui a ULTRAZEND_API_KEY transacional da aplicacao cliente.',
+      '- Essa chave e exclusiva do MCP e nao substitui a VELOMAIL_API_KEY transacional da aplicacao cliente.',
       '',
       'Capacidades expostas:',
       '- tools para listar/configurar dominios, webhooks, settings, API keys e envio de teste;',

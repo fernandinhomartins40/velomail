@@ -418,6 +418,9 @@ export const settingsApi = {
   getSettings: () =>
     api.get('/settings'),
 
+  getUsage: () =>
+    api.get('/settings/usage'),
+
   updateSettings: (data: {
     notification_preferences?: Record<string, boolean>;
     system_preferences?: Record<string, string | number | boolean>;
