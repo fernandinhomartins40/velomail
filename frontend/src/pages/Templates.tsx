@@ -6,17 +6,13 @@ import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
-  BookOpen,
   Copy,
   Download,
   Eye,
-  FileCode2,
-  Layers3,
   Plus,
   Rocket,
   Save,
   Search,
-  Sparkles,
   Trash2,
   Upload
 } from 'lucide-react'
@@ -31,9 +27,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { SafeHTML } from '@/components/ui/SafeHTML'
 import { templateApi } from '@/lib/api'
 import { formatRelativeTime, generateRandomId } from '@/lib/utils'
-import { TemplateLibrary } from '@/components/templates/TemplateLibrary'
-import { TemplateCollections } from '@/components/templates/TemplateCollections'
-import { TemplateAnalytics } from '@/components/templates/TemplateAnalytics'
 import { RichTemplateEditor } from '@/components/templates/RichTemplateEditor'
 
 const createTemplateSchema = z.object({
@@ -150,7 +143,6 @@ const processTemplate = (content: string, variables: Record<string, string>) => 
 export function Templates() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [activeMainTab, setActiveMainTab] = useState('editor')
   const [activeEditorTab, setActiveEditorTab] = useState('rich')
   const [search, setSearch] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
@@ -288,19 +280,6 @@ export function Templates() {
     toast.success(`Modelo "${model.label}" carregado`)
   }
 
-  const loadFromLibrary = (libraryTemplate: any) => {
-    setIsCreating(true)
-    setSelectedTemplate(null)
-    setValue('name', `${libraryTemplate.name} (Cópia)`)
-    setValue('subject', libraryTemplate.subject || '')
-    setValue('html_content', libraryTemplate.html_content || '')
-    setValue('text_content', libraryTemplate.text_content || '')
-    setValue('variables', Array.isArray(libraryTemplate.variables) ? libraryTemplate.variables : [])
-    setActiveEditorTab('rich')
-    setActiveMainTab('editor')
-    toast.success('Template carregado da biblioteca')
-  }
-
   const duplicateSelected = () => {
     if (!selectedTemplate) {
       return
@@ -383,27 +362,7 @@ export function Templates() {
 
   return (
     <div className="space-y-6">
-      <Tabs value={activeMainTab} onValueChange={setActiveMainTab}>
-        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-4">
-          <TabsTrigger value="editor">
-            <FileCode2 className="mr-2 h-4 w-4" />
-            Editor
-          </TabsTrigger>
-          <TabsTrigger value="library">
-            <BookOpen className="mr-2 h-4 w-4" />
-            Biblioteca
-          </TabsTrigger>
-          <TabsTrigger value="collections">
-            <Layers3 className="mr-2 h-4 w-4" />
-            Coleções
-          </TabsTrigger>
-          <TabsTrigger value="analytics">
-            <Sparkles className="mr-2 h-4 w-4" />
-            Analytics
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="editor" className="mt-4">
+      <div>
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[320px_1fr]">
             <Card className="overflow-hidden xl:h-[calc(100vh-220px)]">
               <CardHeader className="border-b pb-4">
@@ -652,47 +611,10 @@ export function Templates() {
                   </TabsContent>
                 </Tabs>
 
-                <Card className="border-primary/20 bg-primary/5">
-                  <CardHeader>
-                    <CardTitle className="text-base">Integração API e Webhooks</CardTitle>
-                    <CardDescription>
-                      O envio por API agora persiste `template_id` e os webhooks recebem `template_id` + `template_data`.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <div className="rounded-lg border bg-white p-3 font-mono text-xs">
-                      POST /api/emails/send {'{'} from, to, subject, template_id, variables {'}'}
-                    </div>
-                    <div className="rounded-lg border bg-white p-3 font-mono text-xs">
-                      webhook.data {'{'} message_id, template_id, template_data, status {'}'}
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setActiveMainTab('library')}>
-                      <BookOpen className="mr-2 h-4 w-4" />
-                      Abrir biblioteca compartilhada
-                    </Button>
-                  </CardContent>
-                </Card>
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-
-        <TabsContent value="library" className="mt-4">
-          <TemplateLibrary
-            onTemplateSelect={loadFromLibrary}
-            showFavoriteButton
-            showCloneButton
-          />
-        </TabsContent>
-
-        <TabsContent value="collections" className="mt-4">
-          <TemplateCollections />
-        </TabsContent>
-
-        <TabsContent value="analytics" className="mt-4">
-          <TemplateAnalytics templateId={selectedTemplate?.id} />
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}

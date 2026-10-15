@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Activity, CheckCircle, Clock, Code, ExternalLink, Eye, Pause, Play, Plus, RefreshCw, Send, ShieldCheck, Trash2, Webhook, XCircle, Zap } from 'lucide-react'
+import { Activity, CheckCircle, Clock, Code, ExternalLink, Eye, Pause, Play, Plus, RefreshCw, Send, Trash2, Webhook, XCircle } from 'lucide-react'
 import { webhookApi } from '@/lib/api'
 import { copyToClipboard, formatRelativeTime } from '@/lib/utils'
 import { CodeSnippetCard } from '@/components/developer/CodeSnippetCard'
@@ -122,11 +122,6 @@ export function Webhooks() {
   })
 
   const webhookList: WebhookConfig[] = webhooksResponse?.data?.webhooks || []
-  const liveWebhookEvents = webhookEvents.filter((event) => event.availability === 'live')
-  const activeWebhookCount = webhookList.filter((item) => item.is_active).length
-  const averageSuccessRate = webhookList.length > 0
-    ? webhookList.reduce((total, webhook) => total + webhook.delivery_success_rate, 0) / webhookList.length
-    : 0
 
   const { data: logsResponse } = useQuery({
     queryKey: ['webhook-logs', selectedWebhook?.id, logFilters],
@@ -282,72 +277,23 @@ export function Webhooks() {
     <div className="space-y-6">
       <PageHeader
         title="Webhooks"
-        description="Configure endpoints reais, valide a assinatura e acompanhe a entrega evento por evento."
-        actions={<>
-          <Button asChild variant="outline">
-            <Link to="/app/developers">Tutorial</Link>
-          </Button>
+        description="Receba um aviso no seu sistema quando um email for entregue, aberto ou falhar."
+        actions={
           <Button onClick={handleNewWebhook}>
             <Plus className="mr-2 h-4 w-4" />
             Novo webhook
           </Button>
-        </>}
+        }
       />
-
-      <section className="vm-page-hero">
-        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-3xl space-y-4">
-            <Badge>Automacao orientada por eventos</Badge>
-            <div className="space-y-2">
-              <h2 className="vm-page-title">Receba o que a plataforma realmente sabe hoje</h2>
-              <p className="vm-page-description">
-                O catálogo abaixo está alinhado ao caminho ativo da VeloMail: aceite na API, aceite SMTP, abertura,
-                clique e falha imediata. Eventos planejados continuam visiveis, mas nao entram como selecao ativa.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link to="/app/developers">Portal de integração</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <a href={getSwaggerDocsUrl()} target="_blank" rel="noreferrer">
-                OpenAPI
-                <ExternalLink className="ml-2 h-4 w-4" />
-              </a>
-            </Button>
-          </div>
-        </div>
-
-        <div className="relative mt-8 grid gap-4 md:grid-cols-4">
-          <div className="vm-hero-card">
-            <div className="vm-hero-label">Endpoints</div>
-            <div className="vm-hero-value">{webhookList.length}</div>
-          </div>
-          <div className="vm-hero-card">
-            <div className="vm-hero-label">Ativos</div>
-            <div className="vm-hero-value">{activeWebhookCount}</div>
-          </div>
-          <div className="vm-hero-card">
-            <div className="vm-hero-label">Eventos live</div>
-            <div className="vm-hero-value">{liveWebhookEvents.length}</div>
-          </div>
-          <div className="vm-hero-card">
-            <div className="vm-hero-label">Sucesso medio</div>
-            <div className="vm-hero-value">{averageSuccessRate.toFixed(1)}%</div>
-          </div>
-        </div>
-      </section>
 
       {latestSecret ? (
         <Card className="border-[hsl(var(--success)/.3)] bg-[hsl(var(--success)/.08)]">
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
-                <h3 className="font-medium text-foreground">Secret do webhook criado agora</h3>
+                <h3 className="font-medium text-foreground">Chave secreta do webhook</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Guarde este secret agora para validar `X-Webhook-Signature`. Ele nao sera exibido novamente.
+                  Copie agora. Ela não aparece de novo.
                 </p>
                 <div className="mt-3 text-xs text-muted-foreground">
                   {latestSecret.webhookName}
@@ -375,75 +321,6 @@ export function Webhooks() {
         </Card>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Setup guiado</CardTitle>
-            <CardDescription>O fluxo mais seguro para ligar um endpoint externo.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-xl border bg-muted/45 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Webhook className="h-4 w-4 text-primary" />
-                1. Endpoint HTTPS
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                Use uma URL publica com resposta 2xx rapida e processamento assicrono no seu backend.
-              </p>
-            </div>
-            <div className="rounded-xl border bg-muted/45 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                2. Valide a assinatura
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                Guarde o secret por endpoint e valide `X-Webhook-Signature` sobre o corpo bruto.
-              </p>
-            </div>
-            <div className="rounded-xl border bg-muted/45 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Zap className="h-4 w-4 text-primary" />
-                3. Teste e monitore
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                Envie `webhook.test`, confira logs, tempo de resposta e trate retries sem duplicidade.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Catalogo de eventos</CardTitle>
-            <CardDescription>Selecione apenas eventos live; os planejados ficam identificados como futuros.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            {webhookEvents.map((event) => (
-              <div
-                key={event.value}
-                className={`rounded-2xl border p-4 ${
-                  event.availability === 'live'
-                    ? 'border-[hsl(var(--success)/.3)] bg-[hsl(var(--success)/.1)]'
-                    : 'border-[hsl(var(--warning)/.3)] bg-[hsl(var(--warning)/.1)]'
-                }`}
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="font-medium text-foreground">{event.label}</div>
-                    <div className="text-xs font-mono text-muted-foreground">{event.value}</div>
-                  </div>
-                  <Badge variant={event.availability === 'live' ? 'default' : 'outline'}>
-                    {event.availability === 'live' ? 'Live' : 'Planejado'}
-                  </Badge>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
-                <p className="mt-2 text-xs text-muted-foreground">{event.deliveryMeaning}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="webhooks">
@@ -456,7 +333,7 @@ export function Webhooks() {
           </TabsTrigger>
           <TabsTrigger value="docs">
             <Code className="mr-2 h-4 w-4" />
-            Docs
+            Como validar
           </TabsTrigger>
         </TabsList>
 

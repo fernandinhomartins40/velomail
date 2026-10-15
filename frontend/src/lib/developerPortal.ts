@@ -63,29 +63,21 @@ export const apiPermissionCatalog: ApiPermissionDefinition[] = [
 export const apiKeyPresets: ApiKeyPreset[] = [
   {
     id: 'transactional-sender',
-    label: 'Envio transacional',
-    description: 'Preset recomendado para sistemas que apenas enviam emails e consultam o historico.',
-    permissions: ['email:send', 'email:read', 'domain:read', 'analytics:read'],
-    recommendation: 'Recomendado para ERP, e-commerce, CRM e backend de producao.'
+    label: 'Enviar emails',
+    description: 'Recomendado para a maioria dos sistemas.',
+    permissions: ['email:send', 'email:read', 'domain:read', 'analytics:read']
   },
   {
     id: 'content-ops',
-    label: 'Conteudo e templates',
-    description: 'Voltado para equipes que publicam templates e monitoram o resultado.',
+    label: 'Templates',
+    description: 'Criar e editar templates.',
     permissions: ['email:read', 'template:read', 'template:write', 'analytics:read']
   },
   {
     id: 'full-integration',
-    label: 'Integracao completa',
-    description: 'Cobre envio, leitura, analytics e automacao via webhooks.',
+    label: 'Acesso completo',
+    description: 'Envio, templates e webhooks.',
     permissions: ['email:send', 'email:read', 'template:read', 'template:write', 'domain:read', 'analytics:read', 'webhook:read', 'webhook:write']
-  },
-  {
-    id: 'ai-agent',
-    label: 'AI Agent',
-    description: 'Preset para Cursor, VS Code e agentes que precisam configurar a conta ponta a ponta.',
-    permissions: ['email:send', 'email:read', 'domain:manage', 'template:manage', 'analytics:read', 'webhook:write', 'api_key:write', 'settings:write', 'workspace:read'],
-    recommendation: 'Use apenas em uma chave dedicada de onboarding tecnico via MCP. Nao reutilize esta credencial como ULTRAZEND_API_KEY da aplicacao.'
   }
 ]
 
@@ -170,31 +162,23 @@ export const getPublicSiteOrigin = () => {
 export const getApiBaseForDocs = () => `${getPublicSiteOrigin()}/api`
 export const getSwaggerDocsUrl = () => `${getPublicSiteOrigin()}/api-docs`
 
-export const buildSendEmailCurlExample = () => `# Use uma API key padrao re_... como ULTRAZEND_API_KEY da aplicacao
-curl --request POST '${getApiBaseForDocs()}/emails/send' \\
-  --header 'Content-Type: application/json' \\
-  --header 'x-api-key: re_xxxxxxxxxxxxxxxxx' \\
-  --data '{
-    "from": "no-reply@seu-dominio.com",
-    "to": "cliente@empresa.com",
-    "subject": "Pedido confirmado",
-    "template_id": 42,
-    "variables": {
-      "customer_name": "Ana",
-      "order_id": "1048"
-    },
-    "html": "<h1>Pedido confirmado</h1><p>Seu pedido #{{order_id}} foi recebido.</p>",
-    "text": "Pedido confirmado\\n\\nSeu pedido #1048 foi recebido.",
-    "tracking_enabled": true
+export const buildSendEmailCurlExample = (apiKey = 're_xxxxxxxxxxxxxxxxx') => `curl -X POST '${getApiBaseForDocs()}/emails/send' \\
+  -H 'Content-Type: application/json' \\
+  -H 'x-api-key: ${apiKey}' \\
+  -d '{
+    "from": "contato@seu-dominio.com",
+    "to": "voce@exemplo.com",
+    "subject": "Olá!",
+    "html": "<p>Meu primeiro email pela VeloMail</p>"
   }'`
 
-export const buildSendEmailFetchExample = () => `const ultrazendApiKey = process.env.ULTRAZEND_API_KEY! // chave padrao re_..., nao use a AI Agent Key
+export const buildSendEmailFetchExample = () => `const velomailApiKey = process.env.VELOMAIL_API_KEY! // chave padrao re_..., nao use a AI Agent Key
 
 const response = await fetch('${getApiBaseForDocs()}/emails/send', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'x-api-key': ultrazendApiKey,
+    'x-api-key': velomailApiKey,
   },
   body: JSON.stringify({
     from: 'no-reply@seu-dominio.com',
