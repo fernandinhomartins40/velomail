@@ -365,53 +365,11 @@ export const DomainList: React.FC<DomainListProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header - Always visible */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Seus Domínios</h2>
-          <p className="text-muted-foreground">
-            Gerencie seus domínios configurados para envio de emails
-          </p>
-        </div>
-        <Button onClick={onAddDomain}>
-          <Plus className="w-4 h-4 mr-2" />
-          Adicionar Domínio
-        </Button>
-      </div>
-
       {/* Content Area */}
       {error && domains.length === 0 ? (
         renderErrorState()
       ) : (
         <>
-          {/* Summary Stats */}
-          {domains.length > 0 && (
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Card className="p-4 text-center">
-                <div className="text-2xl font-bold text-primary">{domains.length}</div>
-                <div className="text-sm text-muted-foreground">Total</div>
-              </Card>
-              <Card className="p-4 text-center">
-                <div className="text-2xl font-bold text-[hsl(var(--success))]">
-                  {domains.filter(d => d.status === 'verified').length}
-                </div>
-                <div className="text-sm text-muted-foreground">Verificados</div>
-              </Card>
-              <Card className="p-4 text-center">
-                <div className="text-2xl font-bold text-[hsl(var(--warning))]">
-                  {domains.filter(d => d.status === 'partial').length}
-                </div>
-                <div className="text-sm text-muted-foreground">Parciais</div>
-              </Card>
-              <Card className="p-4 text-center">
-                <div className="text-2xl font-bold text-destructive">
-                  {domains.filter(d => d.status === 'failed').length}
-                </div>
-                <div className="text-sm text-muted-foreground">Com Falha</div>
-              </Card>
-            </div>
-          )}
-
           {/* Domain List */}
           {domains.length === 0 ? (
             renderEmptyState()

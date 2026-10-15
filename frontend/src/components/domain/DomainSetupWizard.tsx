@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle2, Copy, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { AlertCircle, CheckCircle2, Copy, Loader2, RefreshCw, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert } from '../ui/alert'
-import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Progress } from '../ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { Separator } from '../ui/separator'
-import { type DomainSetupResult, type VerificationResult, useDomainSetup } from '../../hooks/useDomainSetup'
+import {
+  type DNSInstructions,
+  type DNSRecordInstruction,
+  type DNSVerificationResult,
+  type DomainSetupResult,
+  type VerificationResult,
+  useDomainSetup,
+} from '../../hooks/useDomainSetup'
 
 interface DomainSetupWizardProps {
   onComplete?: (domainId: number) => void
@@ -19,16 +25,48 @@ interface DomainSetupWizardProps {
   editDomainId?: number
 }
 
-const steps = [
-  { label: 'Inserir dominio', description: 'Informe o dominio que sera usado no envio' },
-  { label: 'Configurar DNS', description: 'Publique MAIL FROM, SPF, DKIM e DMARC' },
-  { label: 'Verificar', description: 'Confirme o subdominio tecnico e a autenticacao' },
-  { label: 'Concluido', description: 'Dominio pronto para enviar' },
+const steps = ['Domínio', 'DNS', 'Pronto']
+
+type DmarcPolicy = 'none' | 'quarantine' | 'reject'
+type RecordKey = 'mail_from_mx' | 'spf' | 'dkim' | 'dmarc'
+
+const recordRows: Array<{ key: RecordKey; type: string }> = [
+  { key: 'mail_from_mx', type: 'MX' },
+  { key: 'spf', type: 'TXT' },
+  { key: 'dkim', type: 'TXT' },
+  { key: 'dmarc', type: 'TXT' },
 ]
 
-interface DomainConfigurationForm {
-  dmarc_policy: 'none' | 'quarantine' | 'reject'
+/** Dicas curtas para os paineis de DNS mais usados no Brasil. */
+const providerTips: Record<string, string> = {
+  'registro.br': 'Painel do Registro.br › seu domínio › DNS › Editar zona › Nova entrada.',
+  hostinger: 'hPanel › Domínios › DNS / Nameservers › Adicionar registro.',
+  cloudflare: 'Painel Cloudflare › seu domínio › DNS › Records › Add record. Deixe o proxy desligado (nuvem cinza).',
+  godaddy: 'Meus produtos › DNS › Adicionar novo registro.',
+  outro: 'Procure por "DNS", "Zona DNS" ou "Gerenciar DNS" no painel onde você comprou o domínio.',
 }
+
+/** Paineis de DNS pedem so a parte antes do dominio: "_dmarc" em vez de "_dmarc.empresa.com". */
+const relativeHost = (host: string, domain: string) => {
+  if (host === domain) return '@'
+  return host.endsWith(`.${domain}`) ? host.slice(0, -(domain.length + 1)) : host
+}
+
+const toSetupResult = (details: any, dns: any): DomainSetupResult => ({
+  domain: {
+    id: details.domain.id,
+    name: details.domain.name,
+    status: (['pending', 'partial', 'verified', 'failed'].includes(details.domain.status)
+      ? details.domain.status
+      : 'pending') as DomainSetupResult['domain']['status'],
+    completion_percentage: details.domain.completion_percentage,
+    is_verified: details.domain.is_verified,
+    created_at: details.domain.created_at,
+    verified_at: details.domain.verified_at,
+  },
+  dns_instructions: dns.instructions,
+  setup_guide: dns.setup_guide,
+})
 
 export const DomainSetupWizard: React.FC<DomainSetupWizardProps> = ({
   onComplete,
@@ -36,12 +74,14 @@ export const DomainSetupWizard: React.FC<DomainSetupWizardProps> = ({
   initialDomain = '',
   editDomainId,
 }) => {
+  const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState(0)
   const [domain, setDomain] = useState(initialDomain)
+  const [provider, setProvider] = useState('registro.br')
   const [setupResult, setSetupResult] = useState<DomainSetupResult | null>(null)
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
-  const [domainConfiguration, setDomainConfiguration] = useState<DomainConfigurationForm | null>(null)
+  const [dmarcPolicy, setDmarcPolicy] = useState<DmarcPolicy>('none')
 
   const {
     loading,
@@ -61,59 +101,42 @@ export const DomainSetupWizard: React.FC<DomainSetupWizardProps> = ({
     clearError()
   }, [currentStep, clearError])
 
+  const reloadSetup = async (domainId: number) => {
+    const [details, dns] = await Promise.all([loadDomainDetails(domainId), getDNSInstructions(domainId)])
+    setSetupResult(toSetupResult(details, dns))
+    return details
+  }
+
   useEffect(() => {
     if (!editDomainId) {
       return
     }
 
-    const loadExistingDomain = async () => {
-      try {
-        const domainDetails = await loadDomainDetails(editDomainId)
-        const dnsInstructions = await getDNSInstructions(editDomainId)
-
-        setDomain(domainDetails.domain.name)
-        setSetupResult({
-          domain: {
-            id: domainDetails.domain.id,
-            name: domainDetails.domain.name,
-            status: (['pending', 'partial', 'verified', 'failed'].includes(domainDetails.domain.status)
-              ? domainDetails.domain.status
-              : 'pending') as DomainSetupResult['domain']['status'],
-            completion_percentage: domainDetails.domain.completion_percentage,
-            is_verified: domainDetails.domain.is_verified,
-            created_at: domainDetails.domain.created_at,
-            verified_at: domainDetails.domain.verified_at,
-          },
-          dns_instructions: dnsInstructions.instructions,
-          setup_guide: dnsInstructions.setup_guide,
-        })
-        setDomainConfiguration({
-          dmarc_policy: (domainDetails.configuration.dmarc.policy || 'none') as DomainConfigurationForm['dmarc_policy'],
-        })
-
-        setCurrentStep(domainDetails.domain.is_verified ? 3 : 1)
-      } catch (loadError) {
-        console.error('Erro ao carregar dominio para edicao:', loadError)
-      }
-    }
-
-    loadExistingDomain()
-  }, [editDomainId, getDNSInstructions, loadDomainDetails])
+    reloadSetup(editDomainId)
+      .then((details) => {
+        setDomain(details.domain.name)
+        setDmarcPolicy((details.configuration.dmarc.policy || 'none') as DmarcPolicy)
+        setCurrentStep(details.domain.is_verified ? 2 : 1)
+      })
+      .catch((loadError) => console.error('Erro ao carregar domínio:', loadError))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDomainId])
 
   const handleDomainSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
 
-    if (!domain.trim()) {
-      toast.error('Informe um dominio valido')
+    const cleaned = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '')
+    if (!cleaned) {
+      toast.error('Informe um domínio válido')
       return
     }
 
     try {
-      const result = await initiateDomainSetup(domain.trim())
-      setSetupResult(result)
+      setDomain(cleaned)
+      setSetupResult(await initiateDomainSetup(cleaned))
       setCurrentStep(1)
     } catch (submitError) {
-      console.error('Falha ao iniciar configuracao de dominio:', submitError)
+      console.error('Falha ao iniciar configuração de domínio:', submitError)
     }
   }
 
@@ -126,171 +149,70 @@ export const DomainSetupWizard: React.FC<DomainSetupWizardProps> = ({
     try {
       const result = await verifyDomainSetup(setupResult.domain.id)
       setVerificationResult(result)
-      setCurrentStep(result.all_passed ? 3 : 2)
+      if (result.all_passed) {
+        setCurrentStep(2)
+      }
     } catch (verifyError) {
-      console.error('Falha ao verificar dominio:', verifyError)
+      console.error('Falha ao verificar domínio:', verifyError)
     } finally {
       setIsVerifying(false)
     }
   }
 
-  const reloadSetupInstructions = async (domainId: number) => {
-    const domainDetails = await loadDomainDetails(domainId)
-    const dnsInstructions = await getDNSInstructions(domainId)
-
-    setSetupResult({
-      domain: {
-        id: domainDetails.domain.id,
-        name: domainDetails.domain.name,
-        status: (['pending', 'partial', 'verified', 'failed'].includes(domainDetails.domain.status)
-          ? domainDetails.domain.status
-          : 'pending') as DomainSetupResult['domain']['status'],
-        completion_percentage: domainDetails.domain.completion_percentage,
-        is_verified: domainDetails.domain.is_verified,
-        created_at: domainDetails.domain.created_at,
-        verified_at: domainDetails.domain.verified_at,
-      },
-      dns_instructions: dnsInstructions.instructions,
-      setup_guide: dnsInstructions.setup_guide,
-    })
-  }
-
-  const handleSaveConfiguration = async () => {
-    if (!setupResult || !domainConfiguration) {
-      return
+  const handleSaveDmarc = async () => {
+    if (!setupResult) return
+    if (await updateDomain(setupResult.domain.id, { dmarc_policy: dmarcPolicy })) {
+      await reloadSetup(setupResult.domain.id)
     }
-
-    const updated = await updateDomain(setupResult.domain.id, domainConfiguration)
-    if (!updated) {
-      return
-    }
-
-    await reloadSetupInstructions(setupResult.domain.id)
   }
 
   const handleRegenerateDkim = async () => {
-    if (!setupResult) {
-      return
-    }
-
+    if (!setupResult) return
     await regenerateDKIMKeys(setupResult.domain.id)
-    await reloadSetupInstructions(setupResult.domain.id)
+    await reloadSetup(setupResult.domain.id)
   }
 
-  const copyToClipboard = async (text: string, label: string) => {
+  const copy = async (text: string, label = 'Copiado') => {
     try {
       await navigator.clipboard.writeText(text)
-      toast.success(`${label} copiado`)
+      toast.success(label)
     } catch {
-      toast.error('Nao foi possivel copiar')
+      toast.error('Não foi possível copiar')
     }
   }
 
-  const calculateProgress = () => ((currentStep + 1) / steps.length) * 100
+  const copyAllRecords = (instructions: DNSInstructions, rootDomain: string) => {
+    const text = recordRows
+      .map(({ key, type }) => {
+        const record = instructions[key] as DNSRecordInstruction
+        const priority = record.priority ? ` (prioridade ${record.priority})` : ''
+        return `${type}  ${relativeHost(record.record, rootDomain)}  ${record.value}${priority}`
+      })
+      .join('\n')
+    copy(text, 'Registros copiados')
+  }
 
-  const renderStepIndicator = () => (
-    <div className="mb-8">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Assistente de dominio</h2>
-          <p className="text-sm text-muted-foreground">
-            Feche a autenticacao do dominio antes de liberar o envio.
-          </p>
-        </div>
-        <Badge variant="outline">
-          Etapa {currentStep + 1} de {steps.length}
-        </Badge>
-      </div>
+  const renderStatus = (result?: DNSVerificationResult) => {
+    if (!result) return null
+    return result.valid
+      ? <CheckCircle2 className="h-4 w-4 text-[hsl(var(--success))]" aria-label="Encontrado" />
+      : <AlertCircle className="h-4 w-4 text-destructive" aria-label="Não encontrado" />
+  }
 
-      <Progress value={calculateProgress()} className="mb-4" />
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {steps.map((step, index) => {
-          const isCompleted = index < currentStep
-          const isCurrent = index === currentStep
-
-          return (
-            <div key={step.label} className="flex items-start gap-3 rounded-lg border bg-white p-3">
-              <div
-                className={[
-                  'flex h-8 w-8 items-center justify-center rounded-full border text-sm font-medium',
-                  isCompleted && 'border-[hsl(var(--success)/.35)] bg-[hsl(var(--success)/.12)] text-[hsl(var(--success))]',
-                  isCurrent && 'border-primary/35 bg-primary/12 text-primary',
-                  !isCompleted && !isCurrent && 'border-border bg-muted text-muted-foreground',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
-              </div>
-              <div>
-                <div className="text-sm font-medium">{step.label}</div>
-                <div className="text-xs text-muted-foreground">{step.description}</div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-
-  const renderDNSRecord = (type: string, record: any) => (
-    <div key={type} className="space-y-3 rounded-lg border bg-muted/45 p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="font-medium uppercase">{type}</h4>
-        {record.priority ? <Badge variant="outline">Prioridade {record.priority}</Badge> : null}
-      </div>
-
-      <p className="text-sm text-muted-foreground">{record.description}</p>
-
-      <div className="space-y-2">
-        <div>
-          <Label className="text-xs text-muted-foreground">Host</Label>
-          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <code className="flex-1 rounded border bg-white p-2 text-sm">{record.record}</code>
-            <Button size="sm" variant="outline" onClick={() => copyToClipboard(record.record, `${type} host`)}>
-              <Copy className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs text-muted-foreground">Valor</Label>
-          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <code className="flex-1 rounded border bg-white p-2 text-sm break-all">{record.value}</code>
-            <Button size="sm" variant="outline" onClick={() => copyToClipboard(record.value, `${type} valor`)}>
-              <Copy className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderDomainInputStep = () => (
+  const renderDomainStep = () => (
     <Card className="p-6">
-      <div className="mb-6 text-center">
-        <h3 className="mb-2 text-lg font-semibold">{isEditMode ? 'Revisar dominio' : 'Adicionar dominio'}</h3>
-        <p className="text-muted-foreground">
-          {isEditMode
-            ? 'Revise a configuracao atual e ajuste os registros se necessario.'
-            : 'Informe o dominio que sera autenticado para envio transacional.'}
-        </p>
-      </div>
-
       <form onSubmit={handleDomainSubmit} className="space-y-4">
-        <div>
-          <Label htmlFor="domain">Dominio</Label>
+        <div className="space-y-2">
+          <Label htmlFor="domain">Qual o seu domínio?</Label>
           <Input
             id="domain"
             value={domain}
             onChange={(event) => setDomain(event.target.value)}
-            placeholder="example.com"
+            placeholder="suaempresa.com.br"
             disabled={loading || isEditMode}
-            className="mt-1"
+            autoFocus
             required
           />
-          <p className="mt-1 text-sm text-muted-foreground">Use apenas o dominio, sem protocolo ou www.</p>
         </div>
 
         {error && (
@@ -300,335 +222,181 @@ export const DomainSetupWizard: React.FC<DomainSetupWizardProps> = ({
           </Alert>
         )}
 
-        <div className="flex flex-col gap-2 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex justify-between gap-2">
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancelar
           </Button>
           <Button type="submit" disabled={loading || !domain.trim()}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Preparando...
-              </>
-            ) : isEditMode ? (
-              'Continuar'
-            ) : (
-              'Configurar dominio'
-            )}
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Continuar
           </Button>
         </div>
       </form>
     </Card>
   )
 
-  const renderDNSConfigurationStep = () => (
-    <Card className="p-6">
-      <div className="mb-6 text-center">
-        <h3 className="mb-2 text-lg font-semibold">Configurar DNS</h3>
-        <p className="text-muted-foreground">Adicione os registros abaixo no provedor do seu dominio.</p>
-      </div>
-
-      {setupResult && (
-        <>
-          {isEditMode && domainConfiguration && (
-            <>
-              <div className="mb-6 rounded-lg border bg-white p-4">
-                <div className="mb-4">
-                  <h4 className="font-medium">Configuracoes do dominio</h4>
-                  <p className="text-sm text-muted-foreground">
-                    DKIM e SPF tecnico sao obrigatorios. Aqui voce ajusta apenas a politica DMARC e pode rotacionar a chave DKIM.
-                  </p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-3 rounded-lg border p-4">
-                    <div>
-                      <div className="font-medium">SPF tecnico</div>
-                      <div className="text-sm text-muted-foreground">
-                        Obrigatorio. Publicado no subdominio de return-path para autenticar o envelope sender.
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="font-medium">DKIM</div>
-                      <div className="text-sm text-muted-foreground">
-                        Obrigatorio. Assina o cabecalho From do dominio de envio.
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="font-medium">DMARC</div>
-                      <div className="text-sm text-muted-foreground">
-                        Recomendado. Comece com none e endureca depois de validar o alinhamento.
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 rounded-lg border p-4">
-                    <div>
-                      <Label>Politica DMARC</Label>
-                      <Select
-                        value={domainConfiguration.dmarc_policy}
-                        onValueChange={(value: DomainConfigurationForm['dmarc_policy']) =>
-                          setDomainConfiguration((current) => current ? { ...current, dmarc_policy: value } : current)
-                        }
-                      >
-                        <SelectTrigger className="mt-2">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">none</SelectItem>
-                          <SelectItem value="quarantine">quarantine</SelectItem>
-                          <SelectItem value="reject">reject</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" onClick={handleSaveConfiguration} disabled={loading}>
-                        Salvar configuracoes
-                      </Button>
-                      <Button type="button" variant="outline" onClick={handleRegenerateDkim} disabled={loading}>
-                        Regenerar DKIM
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <Separator className="my-6" />
-            </>
-          )}
-
-          <Alert className="mb-6 border-primary/25 bg-primary/5">
-            <Info className="h-4 w-4" />
-            <div>
-              <h4 className="font-medium">Nao altere o site nem o MX principal</h4>
-              <p className="text-sm">
-                A VeloMail usa um subdominio técnico de return-path. O domínio raiz e o email corporativo do cliente continuam intactos.
-              </p>
-            </div>
-          </Alert>
-
-          <Alert className="mb-6 border-[hsl(var(--warning)/.3)] bg-[hsl(var(--warning)/.12)]">
-            <Info className="h-4 w-4" />
-            <div>
-              <h4 className="font-medium">Foco em inbox (anti-spam)</h4>
-              <p className="text-sm">
-                Use exatamente os hosts e valores abaixo. SPF em duplicidade, DKIM incompleto ou DMARC ausente derrubam entregabilidade.
-              </p>
-            </div>
-          </Alert>
-
-          <div className="mb-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border bg-white p-4">
-              <div className="text-sm font-medium text-muted-foreground">Dominio de envio</div>
-              <div className="mt-2 text-lg font-semibold">{setupResult.dns_instructions.sending_domain}</div>
-            </div>
-            <div className="rounded-lg border bg-white p-4">
-              <div className="text-sm font-medium text-muted-foreground">Subdominio tecnico (MAIL FROM)</div>
-              <div className="mt-2 text-lg font-semibold">{setupResult.dns_instructions.mail_from_domain}</div>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <h4 className="mb-3 font-medium">Subdominio tecnico</h4>
-            {renderDNSRecord('MAIL FROM MX', setupResult.dns_instructions.mail_from_mx)}
-          </div>
-
-          <Separator className="my-6" />
-
-          <div className="mb-6">
-            <h4 className="mb-3 font-medium">Autenticacao DNS</h4>
-            <div className="space-y-4">
-              {renderDNSRecord('SPF', setupResult.dns_instructions.spf)}
-              {renderDNSRecord('DKIM', setupResult.dns_instructions.dkim)}
-              {renderDNSRecord('DMARC', setupResult.dns_instructions.dmarc)}
-            </div>
-          </div>
-
-          {setupResult.dns_instructions.notes.length > 0 && (
-            <div className="mb-6 rounded-lg border border-[hsl(var(--warning)/.3)] bg-[hsl(var(--warning)/.12)] p-4">
-              <h4 className="mb-2 font-medium text-foreground">Notas importantes</h4>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                {setupResult.dns_instructions.notes.map((note) => (
-                  <div key={note}>- {note}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(setupResult.dns_instructions.deliverability_requirements || []).length > 0 && (
-            <div className="mb-6 rounded-lg border border-[hsl(var(--success)/.3)] bg-[hsl(var(--success)/.12)] p-4">
-              <h4 className="mb-2 font-medium text-foreground">Requisitos para evitar spam</h4>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                {setupResult.dns_instructions.deliverability_requirements.map((item) => (
-                  <div key={item}>- {item}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(setupResult.dns_instructions.recommended_practices || []).length > 0 && (
-            <div className="mb-6 rounded-lg border bg-muted/45 p-4">
-              <h4 className="mb-2 font-medium text-foreground">Boas praticas recomendadas</h4>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                {setupResult.dns_instructions.recommended_practices.map((item) => (
-                  <div key={item}>- {item}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-            <h4 className="mb-2 font-medium text-foreground">Passo a passo</h4>
-            <ol className="space-y-1 text-sm text-muted-foreground">
-              {setupResult.setup_guide.map((step, index) => (
-                <li key={`${step}-${index}`}>
-                  {index + 1}. {step}
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="flex flex-col gap-2 pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => setCurrentStep(0)}>
-              Voltar
-            </Button>
-            <Button type="button" onClick={() => setCurrentStep(2)}>
-              Ja configurei
-            </Button>
-          </div>
-        </>
-      )}
-    </Card>
-  )
-
-  const renderVerificationResult = (label: string, result?: VerificationResult['results']['spf']) => {
-    if (!result) {
-      return null
-    }
+  const renderDnsStep = () => {
+    if (!setupResult) return null
+    const instructions = setupResult.dns_instructions
+    const rootDomain = setupResult.domain.name
 
     return (
-      <div className="flex flex-col gap-3 rounded-lg border bg-muted/45 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          {result.valid ? (
-            <CheckCircle2 className="h-5 w-5 text-[hsl(var(--success))]" />
-          ) : (
-            <AlertCircle className="h-5 w-5 text-destructive" />
-          )}
-          <div>
-            <div className="font-medium">{label}</div>
-            {result.error && <div className="text-sm text-destructive">{result.error}</div>}
-            {!result.valid && result.expected && (
-              <div className="text-xs text-muted-foreground">Esperado: {result.expected}</div>
-            )}
-            {result.found && <div className="text-xs text-muted-foreground">Atual: {result.found}</div>}
-          </div>
+      <Card className="space-y-5 p-6">
+        <div className="space-y-1">
+          <h3 className="font-semibold">Adicione estes registros no seu DNS</h3>
+          <p className="text-sm text-muted-foreground">Seu site e seu email atual continuam funcionando normalmente.</p>
         </div>
-        <Badge variant={result.valid ? 'default' : 'destructive'}>{result.valid ? 'OK' : 'Ajustar'}</Badge>
-      </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Label className="shrink-0 text-sm text-muted-foreground">Onde está seu domínio?</Label>
+          <Select value={provider} onValueChange={setProvider}>
+            <SelectTrigger className="sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="registro.br">Registro.br</SelectItem>
+              <SelectItem value="hostinger">Hostinger</SelectItem>
+              <SelectItem value="cloudflare">Cloudflare</SelectItem>
+              <SelectItem value="godaddy">GoDaddy</SelectItem>
+              <SelectItem value="outro">Outro</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">{providerTips[provider]}</p>
+
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Tipo</th>
+                <th className="px-3 py-2 font-medium">Nome</th>
+                <th className="px-3 py-2 font-medium">Valor</th>
+                {verificationResult && <th className="px-3 py-2" aria-label="Status" />}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {recordRows.map(({ key, type }) => {
+                const record = instructions[key] as DNSRecordInstruction
+                const host = relativeHost(record.record, rootDomain)
+
+                return (
+                  <tr key={key} className="align-top">
+                    <td className="px-3 py-2.5 font-medium">
+                      {type}
+                      {record.priority ? <div className="text-xs font-normal text-muted-foreground">prioridade {record.priority}</div> : null}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <button
+                        type="button"
+                        title={`Nome completo: ${record.record}`}
+                        onClick={() => copy(host, 'Nome copiado')}
+                        className="flex items-center gap-1.5 font-mono text-xs hover:text-primary"
+                      >
+                        {host}
+                        <Copy className="h-3 w-3 shrink-0 opacity-60" />
+                      </button>
+                    </td>
+                    <td className="max-w-[18rem] px-3 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => copy(record.value, 'Valor copiado')}
+                        className="flex items-start gap-1.5 text-left font-mono text-xs hover:text-primary"
+                      >
+                        <span className="line-clamp-2 break-all">{record.value}</span>
+                        <Copy className="mt-0.5 h-3 w-3 shrink-0 opacity-60" />
+                      </button>
+                    </td>
+                    {verificationResult && (
+                      <td className="px-3 py-2.5">{renderStatus(verificationResult.results[key])}</td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {verificationResult && !verificationResult.all_passed && (
+          <p className="text-sm text-muted-foreground">
+            Ainda não encontramos todos os registros. A propagação do DNS pode levar alguns minutos (às vezes algumas horas).
+          </p>
+        )}
+
+        {isEditMode && (
+          <details>
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Avançado</summary>
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Política DMARC</Label>
+                <Select value={dmarcPolicy} onValueChange={(value: DmarcPolicy) => setDmarcPolicy(value)}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">none</SelectItem>
+                    <SelectItem value="quarantine">quarantine</SelectItem>
+                    <SelectItem value="reject">reject</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={handleSaveDmarc} disabled={loading}>
+                Salvar
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={handleRegenerateDkim} disabled={loading}>
+                Gerar nova chave DKIM
+              </Button>
+            </div>
+          </details>
+        )}
+
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button type="button" variant="outline" onClick={() => copyAllRecords(instructions, rootDomain)}>
+            <Copy className="mr-2 h-4 w-4" />
+            Copiar todos
+          </Button>
+          <Button type="button" onClick={handleVerification} disabled={isVerifying}>
+            {isVerifying
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : verificationResult && <RefreshCw className="mr-2 h-4 w-4" />}
+            {verificationResult ? 'Verificar de novo' : 'Já adicionei, verificar'}
+          </Button>
+        </div>
+      </Card>
     )
   }
 
-  const renderVerificationStep = () => (
-    <Card className="p-6">
-      <div className="mb-6 text-center">
-        <h3 className="mb-2 text-lg font-semibold">Verificar configuracao</h3>
-        <p className="text-muted-foreground">Confira se o MAIL FROM tecnico, SPF, DKIM e DMARC ja propagaram no DNS.</p>
+  const renderDoneStep = () => (
+    <Card className="space-y-5 p-8 text-center">
+      <CheckCircle2 className="mx-auto h-14 w-14 text-[hsl(var(--success))]" />
+      <div className="space-y-1">
+        <h3 className="text-xl font-semibold">Tudo pronto!</h3>
+        <p className="text-muted-foreground">{setupResult?.domain.name} já pode enviar emails.</p>
       </div>
-
-      {verificationResult && (
-        <div className="mb-6 space-y-6">
-          <div className="space-y-2">
-            {renderVerificationResult('MAIL FROM MX', verificationResult.results.mail_from_mx)}
-            {renderVerificationResult('SPF', verificationResult.results.spf)}
-            {renderVerificationResult('DKIM', verificationResult.results.dkim)}
-            {renderVerificationResult('DMARC', verificationResult.results.dmarc)}
-          </div>
-
-          {!verificationResult.all_passed && verificationResult.next_steps.length > 0 && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <div>
-                <h4 className="font-medium">Pendencias encontradas</h4>
-                <ul className="mt-1 space-y-1 text-sm">
-                  {verificationResult.next_steps.map((step, index) => (
-                    <li key={`${step}-${index}`}>- {step}</li>
-                  ))}
-                </ul>
-              </div>
-            </Alert>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
-          Voltar para DNS
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <Button onClick={() => navigate('/app/emails/send')}>
+          <Send className="mr-2 h-4 w-4" />
+          Enviar email de teste
         </Button>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={handleVerification} disabled={isVerifying}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isVerifying ? 'animate-spin' : ''}`} />
-            Verificar novamente
-          </Button>
-          <Button type="button" onClick={handleVerification} disabled={isVerifying}>
-            {isVerifying ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Verificando...
-              </>
-            ) : (
-              'Verificar DNS'
-            )}
-          </Button>
-        </div>
-      </div>
-    </Card>
-  )
-
-  const renderCompletionStep = () => (
-    <Card className="p-6 text-center">
-      <CheckCircle2 className="mx-auto mb-4 h-16 w-16 text-[hsl(var(--success))]" />
-      <h3 className="mb-2 text-2xl font-bold text-foreground">Dominio configurado</h3>
-      <p className="mb-6 text-muted-foreground">
-        {setupResult?.domain.name} esta autenticado e pronto para uso no envio de emails.
-      </p>
-
-      <div className="mb-6 rounded-lg border border-[hsl(var(--success)/.3)] bg-[hsl(var(--success)/.12)] p-4 text-left">
-        <h4 className="mb-2 font-medium text-foreground">O que ficou valido</h4>
-        <div className="space-y-1 text-sm text-muted-foreground">
-          <div>OK MAIL FROM tecnico validado</div>
-          <div>OK SPF tecnico autorizado</div>
-          <div>OK DKIM assinado</div>
-          <div>OK DMARC publicado</div>
-          <div>OK dominio pronto para envio transacional</div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <Button onClick={() => setupResult && onComplete?.(setupResult.domain.id)} className="w-full">
-          Ir para dominios
-        </Button>
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => window.open('https://docs.velomail.com.br/domains', '_blank')}
-        >
-          <ExternalLink className="mr-2 h-4 w-4" />
-          Ver documentacao
+        <Button variant="outline" onClick={() => setupResult && onComplete?.(setupResult.domain.id)}>
+          Voltar para domínios
         </Button>
       </div>
     </Card>
   )
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      {renderStepIndicator()}
-      {currentStep === 0 && renderDomainInputStep()}
-      {currentStep === 1 && renderDNSConfigurationStep()}
-      {currentStep === 2 && renderVerificationStep()}
-      {currentStep === 3 && renderCompletionStep()}
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium">{steps[currentStep]}</span>
+          <span className="text-muted-foreground">Etapa {currentStep + 1} de {steps.length}</span>
+        </div>
+        <Progress value={((currentStep + 1) / steps.length) * 100} />
+      </div>
+
+      {currentStep === 0 && renderDomainStep()}
+      {currentStep === 1 && renderDnsStep()}
+      {currentStep === 2 && renderDoneStep()}
     </div>
   )
 }
